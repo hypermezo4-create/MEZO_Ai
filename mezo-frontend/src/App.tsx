@@ -251,6 +251,7 @@ export default function App() {
             Probe server
           </Button>
           <div className={cn("connection-state", connected && "connected")} aria-live="polite"><span />{connected ? "Engine reachable" : "Not connected"}</div>
+          {health?.lan_ip && <div className="connection-state">LAN IP: <code>http://{health.lan_ip}:8081</code></div>}
         </section>
 
         <section className="side-section runtime-section" aria-live="polite">
@@ -323,7 +324,7 @@ export default function App() {
               {lastRun?.queueWaitMs != null ? <Badge><Clock className="size-3" /> queue {Math.round(lastRun.queueWaitMs)}ms</Badge> : null}
               <Badge><MonitorDot className="size-3" /> slot {cacheSlot + 1}</Badge>
               <Button variant="ghost" size="sm" onClick={() => { updateMessages([]); setTokPerSec(null); setTtft(null); setTokenCount(0); setTotalTokens({prompt:0,completion:0}) }} disabled={!messages.length || loading}><Trash2 className="size-3.5" /> Clear</Button>
-              {isMobile && <Button variant="ghost" size="sm" onClick={() => setShowSettings(true)}><Settings className="size-3.5" /></Button>}
+              <Button variant="ghost" size="sm" onClick={() => setShowSettings(true)}><Settings className="size-3.5" /></Button>
             </div>
         </header>
 
@@ -333,6 +334,7 @@ export default function App() {
               <div className="orb"><Layers /></div>
               <h2>MEZO AI <br/>Connection Setup</h2>
               <p>Enter your Desktop's IP address (e.g. <code>http://192.168.1.100:8081</code>) or your remote Fly.io URL.</p>
+              {health?.lan_ip && !isMobile && <p style={{color: "var(--primary)", marginTop: "4px"}}>Your Desktop LAN IP: <code>http://{health.lan_ip}:8081</code></p>}
               <label>API Endpoint</label>
               <Input autoFocus value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="http://..." />
               <Button onClick={() => { setShowSettings(false); connect(); }} disabled={!baseUrl.trim()}>Connect</Button>

@@ -1,8 +1,10 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import json
+import socket
 from src.inference.text_generator import TextGenerator
 from src.inference.code_generator import CodeGenerator
 from src.inference.reasoning import ReasoningEngine
@@ -13,6 +15,24 @@ from src.providers.provider_router import ProviderRouter, GeminiQuotaException
 from src.persona.system_prompt import get_system_prompt, MEZO_AI_SYSTEM_PROMPT
 
 app = FastAPI(title="MEZO AI Engine", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+def get_local_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
 
 text_gen = TextGenerator()
 code_gen = CodeGenerator()
@@ -96,7 +116,8 @@ async def mezo_doctor():
         "status": "ok",
         "doctor": {
             "local_engine_online": local_status,
-            "local_engine_url": local_provider.base_url
+            "local_engine_url": local_provider.base_url,
+            "lan_ip": get_local_ip()
         }
     }
 

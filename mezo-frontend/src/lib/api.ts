@@ -10,6 +10,15 @@ interface OpenAIError {
   error?: { message?: string }
 }
 
+export interface HealthResponse {
+  status: string
+  scheduler?: SchedulerHealth
+  kv_slots?: number
+  tiers?: TiersHealth
+  hwinfo?: HwinfoHealth
+  lan_ip?: string
+}
+
 export interface SchedulerHealth {
   active: boolean | number
   capacity?: number
@@ -123,7 +132,8 @@ export async function getHealth(baseUrl: string, apiKey = "", signal?: AbortSign
     scheduler: { active: body.doctor?.local_engine_online ? 1 : 0, capacity: 1, queued: 0, max_queue: 1, queue_timeout_seconds: 30, admitted: 1, completed: 1, rejected: 0, timed_out: 0, cancelled: 0 },
     kv_slots: 1,
     tiers: { vram: 4096, ram: 8192, disk: 10240, vram_gb: 4, ram_gb: 8 },
-    hwinfo: { cores: 8, ram_total_gb: 16, ram_avail_gb: 8, gpus: 1, vram_total_gb: 8, cpu: "MEZO CPU", gpu: "MEZO GPU" }
+    hwinfo: { cores: 8, ram_total_gb: 16, ram_avail_gb: 8, gpus: 1, vram_total_gb: 8, cpu: "MEZO CPU", gpu: "MEZO GPU" },
+    lan_ip: body.doctor?.lan_ip
   }
 }
 
