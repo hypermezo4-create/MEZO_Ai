@@ -1,0 +1,10 @@
+groups:
+  - name: mezo_alerts
+    rules:
+      - alert: HighMemoryUsage
+        expr: ram_used_mb > 14000
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MEZO platform memory usage exceeds 14GB"

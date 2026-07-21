@@ -1,0 +1,8 @@
+app = "mezo-platform"
+primary_region = "ams"
+
+[build]
+  dockerfile = "fly/Dockerfile.fly"
+
+[env]
+  PORT = "8080"

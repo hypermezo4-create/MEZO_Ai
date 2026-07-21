@@ -1,0 +1,10 @@
+plugins:
+  fly:
+    enabled: true
+    app_name: mezo-backend
+  github:
+    enabled: true
+    branch: main
+  docker:
+    enabled: true
+    socket: unix:///var/run/docker.sock

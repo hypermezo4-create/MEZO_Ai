@@ -1,0 +1,4 @@
+policy:
+  mfa_required: true
+  session_timeout_minutes: 60
+  password_min_length: 12

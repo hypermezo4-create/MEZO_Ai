@@ -1,0 +1,13 @@
+skills:
+  system:
+    enabled: true
+    path: skills/system-skills
+  development:
+    enabled: true
+    path: skills/development-skills
+  learning:
+    enabled: true
+    path: skills/learning-skills
+  custom:
+    enabled: true
+    path: skills/custom-skills

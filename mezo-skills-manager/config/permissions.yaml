@@ -1,0 +1,9 @@
+permissions:
+  system_skills:
+    allow_fs_write: true
+    allow_process_kill: false
+  development_skills:
+    allow_code_gen: true
+    allow_deployment: true
+  learning_skills:
+    allow_self_train: true

@@ -1,0 +1,13 @@
+agents:
+  - name: SystemAgent
+    enabled: true
+    role: system_control
+  - name: DeploymentAgent
+    enabled: true
+    role: CI_CD_deployer
+  - name: MonitoringAgent
+    enabled: true
+    role: health_observer
+  - name: SecurityAgent
+    enabled: true
+    role: rbac_auditor

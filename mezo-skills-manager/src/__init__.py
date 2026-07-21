@@ -1,0 +1,1 @@
+# Skills manager core package

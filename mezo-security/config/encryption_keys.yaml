@@ -1,0 +1,3 @@
+encryption:
+  algorithm: AES-256-GCM
+  key_rotation_days: 90

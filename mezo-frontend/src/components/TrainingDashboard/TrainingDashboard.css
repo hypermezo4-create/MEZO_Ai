@@ -1,0 +1,19 @@
+.training-container {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.metrics-box {
+  display: flex;
+  gap: 16px;
+}
+
+.metric-pill {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-glass);
+  padding: 12px 20px;
+  border-radius: var(--radius-md);
+  flex: 1;
+}

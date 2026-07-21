@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'mezo-backend'
+    static_configs:
+      - targets: ['localhost:5000']
+
+  - job_name: 'mezo-ai-engine'
+    static_configs:
+      - targets: ['localhost:8000']
+
+  - job_name: 'mezo-control-plane'
+    static_configs:
+      - targets: ['localhost:8080']

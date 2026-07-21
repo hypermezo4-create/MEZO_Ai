@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS system_logs (
+    id BIGSERIAL PRIMARY KEY,
+    service_name VARCHAR(100) NOT NULL,
+    log_level VARCHAR(20) NOT NULL,
+    message TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
