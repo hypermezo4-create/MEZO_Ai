@@ -3,6 +3,8 @@ node_modules/
 .pnpm-store/
 venv/
 env/
+.venv*/
+venv-*/
 __pycache__/
 *.pyc
 

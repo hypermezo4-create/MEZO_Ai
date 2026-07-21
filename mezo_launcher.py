@@ -52,6 +52,24 @@ if __name__ == "__main__":
         p3 = multiprocessing.Process(target=run_security)
         processes.append(p3)
 
+    import signal
+    import atexit
+
+    def cleanup(*args):
+        print("\n[MEZO LAUNCHER] Shutting down services...")
+        for p in multiprocessing.active_children():
+            p.terminate()
+            p.join()
+        print("[MEZO LAUNCHER] Shutdown complete.")
+        sys.exit(0)
+
+    # Register handlers for graceful shutdown
+    atexit.register(cleanup)
+    signal.signal(signal.SIGINT, cleanup)
+    signal.signal(signal.SIGTERM, cleanup)
+    if hasattr(signal, 'SIGBREAK'):
+        signal.signal(signal.SIGBREAK, cleanup)
+
     try:
         for p in processes:
             p.start()
@@ -60,8 +78,4 @@ if __name__ == "__main__":
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        print("\n[MEZO LAUNCHER] Shutting down services...")
-        for p in processes:
-            p.terminate()
-            p.join()
-        print("[MEZO LAUNCHER] Shutdown complete.")
+        pass # Handled by signal/atexit
