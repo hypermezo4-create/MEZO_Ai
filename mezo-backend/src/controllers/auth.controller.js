@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { JWT_SECRET } = require('../config/security');
+const { JWT_SECRET, ADMIN_USERNAME, ADMIN_PASSWORD } = require('../config/security');
 
 exports.login = async (req, res) => {
   const { username, password } = req.body;
@@ -7,7 +7,11 @@ exports.login = async (req, res) => {
     return res.status(400).json({ status: 'error', message: 'اسم المستخدم وكلمة المرور مطلوبة' });
   }
 
-  // Admin authentication check
+  // Validate credentials against admin store
+  if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
+    return res.status(401).json({ status: 'error', message: 'اسم المستخدم أو كلمة المرور غير صحيحة' });
+  }
+
   const token = jwt.sign({ username, role: 'admin' }, JWT_SECRET, { expiresIn: '24h' });
   return res.json({
     status: 'success',
@@ -22,3 +26,4 @@ exports.getProfile = async (req, res) => {
     user: req.user || { username: 'admin', role: 'admin' }
   });
 };
+
