@@ -1,4 +1,0 @@
-policy:
-  auto_trigger_on_feedback: true
-  min_positive_samples: 500
-  validation_threshold_accuracy: 0.95

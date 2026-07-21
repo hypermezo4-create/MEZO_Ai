@@ -1,3 +1,0 @@
-compliance:
-  log_retention_days: 365
-  audit_level: HIGH

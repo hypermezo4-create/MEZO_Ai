@@ -1,219 +1,124 @@
-export type ChatRole = "system" | "user" | "assistant"
-
-export interface ChatMessage {
-  id: string
-  role: ChatRole
-  content: string
+export interface Repository { id: string; full_name: string; default_branch: string; active: boolean }
+export interface Project { id: string; name: string; repository_id: string; owner_id: string }
+export interface Runner { id: string; name: string; status: string; version: string; current_task_id: string | null; last_heartbeat_at: string; disk_total_bytes: number | null; disk_free_bytes: number | null; capabilities: Record<string, unknown> }
+export interface TaskStep { id: string; step_index: number; name: string; description: string; status: string; started_at: string | null; finished_at: string | null; command: string | null; exit_code: number | null; result_summary: string | null; error: string | null; requires_approval: boolean }
+export interface Task {
+  id: string; user_id: string; repository: string; base_branch: string; working_branch: string; title: string;
+  description: string; status: string; current_step: string | null; created_at: string; started_at: string | null;
+  finished_at: string | null; runner_id: string | null; workspace_id: string | null; error: string | null;
+  approval_state: string; pull_request_url: string | null; changed_files: ChangedFile[]; diff_text: string | null;
+  diff_hash: string | null; validation_report: ValidationReport; steps: TaskStep[];
 }
-
-interface OpenAIError {
-  error?: { message?: string }
+export interface ChangedFile { path: string; additions: number | null; deletions: number | null }
+export interface ValidationItem { command?: string; name?: string; status?: string; exit_code: number; duration_ms?: number; summary?: string; phase?: string }
+export interface ValidationReport { commands?: ValidationItem[]; tests?: ValidationItem[]; guards?: ValidationItem[]; known_risks?: string[]; diff_summary?: { files: number; additions: number; deletions: number } }
+export interface ApprovalRequest {
+  repository: string
+  base_branch: string
+  working_branch: string
+  changed_files: ChangedFile[]
+  diff_hash: string
+  commit_sha: string
+  diff_summary: { files: number; additions: number; deletions: number }
+  commands: ValidationItem[]
+  tests: ValidationItem[]
+  guards: ValidationItem[]
+  known_risks: string[]
+  pull_request_title: string
+  pull_request_body: string
 }
+export interface Approval { id: string; task_id: string; diff_hash: string; action: string; state: string; expires_at: string; request: ApprovalRequest }
+export interface TaskEvent { id: number; type: string; stream: string | null; timestamp: string; payload: Record<string, unknown> }
 
-export interface HealthResponse {
-  status: string
-  scheduler?: SchedulerHealth
-  kv_slots?: number
-  tiers?: TiersHealth
-  hwinfo?: HwinfoHealth
-  lan_ip?: string
-}
+type Method = "GET" | "POST" | "PUT" | "DELETE"
 
-export interface SchedulerHealth {
-  active: boolean | number
-  capacity?: number
-  queued: number
-  max_queue: number
-  queue_timeout_seconds: number
-  admitted: number
-  completed: number
-  rejected: number
-  timed_out: number
-  cancelled: number
-}
-
-export interface TiersHealth {
-  vram: number
-  ram: number
-  disk: number
-  vram_gb: number
-  ram_gb: number
-}
-
-export interface HwinfoHealth {
-  cores: number
-  ram_total_gb: number
-  ram_avail_gb: number
-  gpus: number
-  vram_total_gb: number
-  cpu: string
-  gpu: string
-}
-
-export interface HealthResponse {
-  status: string
-  scheduler?: SchedulerHealth
-  kv_slots?: number
-  tiers?: TiersHealth
-  hwinfo?: HwinfoHealth
-}
-
-export interface ProfileTurn {
-  wall_s: number
-  prompt_tokens: number
-  completion_tokens: number
-  expert_disk_s: number
-  expert_wait_s: number
-  expert_matmul_s: number
-  attention_s: number
-  lm_head_s: number
-  forwards: number
-}
-
-export interface ProfileResponse {
-  seq: number
-  turns: ProfileTurn[]
-}
-
-export interface TokenUsage {
-  prompt_tokens: number
-  completion_tokens: number
-  total_tokens: number
-}
-
-export interface StreamChatResult {
-  finishReason: string | null
-  usage: TokenUsage | null
-  requestId: string | null
-  queueWaitMs: number | null
-}
-
-export function endpoint(baseUrl: string, path: string) {
-  return `${baseUrl.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`
-}
-
-export function serverEndpoint(baseUrl: string, path: string) {
-  return endpoint(baseUrl.replace(/\/v1\/?$/, ""), path)
-}
-
-function headers(apiKey: string) {
-  return {
-    "Content-Type": "application/json",
-    ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+export class MezoApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+    this.name = "MezoApiError"
   }
 }
 
-async function responseError(response: Response) {
-  const fallback = `${response.status} ${response.statusText}`
-  try {
-    const body = (await response.json()) as OpenAIError
-    return body.error?.message || fallback
-  } catch {
-    return fallback
+export class MezoApi {
+  readonly baseUrl: string
+  private token = ""
+
+  constructor(baseUrl = import.meta.env.VITE_MEZO_API_URL || "") {
+    this.baseUrl = baseUrl.replace(/\/$/, "")
   }
-}
 
-export async function listModels(baseUrl: string, apiKey: string, signal?: AbortSignal) {
-  const response = await fetch(endpoint(baseUrl, "providers/capabilities"), { headers: headers(apiKey), signal })
-  if (!response.ok) throw new Error(await responseError(response))
-  const body = (await response.json()) as { local?: { model_name?: string }, gemini?: { model_name?: string } }
-  const models = []
-  if (body.local?.model_name) models.push("local")
-  if (body.gemini?.model_name) models.push("gemini")
-  return models.length ? models : ["auto"]
-}
+  setToken(token: string) { this.token = token }
 
-export async function getHealth(baseUrl: string, apiKey = "", signal?: AbortSignal): Promise<HealthResponse> {
-  const response = await fetch(serverEndpoint(baseUrl, "doctor"), { headers: headers(apiKey), signal })
-  if (!response.ok) throw new Error(await responseError(response))
-  const body = await response.json()
-  return {
-    status: body.status,
-    scheduler: { active: body.doctor?.local_engine_online ? 1 : 0, capacity: 1, queued: 0, max_queue: 1, queue_timeout_seconds: 30, admitted: 1, completed: 1, rejected: 0, timed_out: 0, cancelled: 0 },
-    kv_slots: 1,
-    tiers: { vram: 4096, ram: 8192, disk: 10240, vram_gb: 4, ram_gb: 8 },
-    hwinfo: { cores: 8, ram_total_gb: 16, ram_avail_gb: 8, gpus: 1, vram_total_gb: 8, cpu: "MEZO CPU", gpu: "MEZO GPU" },
-    lan_ip: body.doctor?.lan_ip
-  }
-}
-
-export async function getProfile(baseUrl: string, apiKey = "", signal?: AbortSignal): Promise<ProfileResponse> {
-  // Profiling not fully mapped in MEZO yet
-  return { seq: 1, turns: [] }
-}
-
-export function extractSSE(buffer: string) {
-  const frames = buffer.split(/\r?\n\r?\n/)
-  const rest = frames.pop() || ""
-  const data = frames.flatMap((frame) =>
-    frame
-      .split(/\r?\n/)
-      .filter((line) => line.startsWith("data:"))
-      .map((line) => line.slice(5).trimStart()),
-  )
-  return { data, rest }
-}
-
-export interface StreamChatOptions {
-  baseUrl: string
-  apiKey: string
-  model: string
-  messages: ChatMessage[]
-  temperature: number
-  maxTokens: number
-  enableThinking: boolean
-  cacheSlot?: number
-  signal: AbortSignal
-  onDelta: (text: string) => void
-}
-
-export async function streamChat(options: StreamChatOptions): Promise<StreamChatResult> {
-  const response = await fetch(endpoint(options.baseUrl, "generate"), {
-    method: "POST",
-    headers: headers(options.apiKey),
-    signal: options.signal,
-    body: JSON.stringify({
-      prompt: options.messages.map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`).join("\n"),
-      preferred_provider: options.model === "auto" ? "auto" : options.model,
-      max_tokens: options.maxTokens,
-      temperature: options.temperature,
-      stream: true,
-    }),
-  })
-  if (!response.ok) throw new Error(await responseError(response))
-  if (!response.body) throw new Error("The server returned an empty stream.")
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ""
-  let finishReason: string | null = null
-
-  const consume = (data: string) => {
-    if (data === "[DONE]") return
-    try {
-      const event = JSON.parse(data)
-      if (event.event === "token" && event.chunk?.text) {
-        options.onDelta(event.chunk.text)
-        if (event.chunk.is_final) finishReason = "stop"
-      }
-    } catch (e) {
-      // Ignore parse errors from partial chunks handled by extractSSE
+  private async request<T>(path: string, method: Method = "GET", body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
+        ...extraHeaders,
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+    if (!response.ok) {
+      let message = `${response.status} ${response.statusText}`
+      try { message = (await response.json()).detail || message } catch { /* response was not JSON */ }
+      throw new MezoApiError(message, response.status)
     }
+    return response.json() as Promise<T>
   }
 
-  while (true) {
-    const { value, done } = await reader.read()
-    buffer += decoder.decode(value, { stream: !done })
-    const parsed = extractSSE(buffer)
-    buffer = parsed.rest
-    parsed.data.forEach(consume)
-    if (done) break
+  async login(email: string, password: string) {
+    const result = await this.request<{ access_token: string; expires_in: number }>("/api/auth/login", "POST", { email, password })
+    this.setToken(result.access_token)
+    return result
   }
 
-  return {
-    finishReason,
-    usage: null, // Usage not provided in MEZO stream currently
-    requestId: response.headers.get("x-request-id"),
-    queueWaitMs: null,
+  async bootstrap(email: string, password: string, bootstrapToken: string) {
+    const result = await this.request<{ access_token: string; expires_in: number }>(
+      "/api/auth/bootstrap", "POST", { email, password }, { "X-MEZO-Bootstrap-Token": bootstrapToken },
+    )
+    this.setToken(result.access_token)
+    return result
+  }
+
+  repositories = () => this.request<Repository[]>("/api/repositories")
+  projects = () => this.request<Project[]>("/api/projects")
+  tasks = () => this.request<Task[]>("/api/tasks")
+  task = (id: string) => this.request<Task>(`/api/tasks/${id}`)
+  runners = () => this.request<Runner[]>("/api/runners")
+  audit = (taskId?: string) => this.request<{ integrity_valid: boolean; records: unknown[] }>(`/api/audit${taskId ? `?task_id=${encodeURIComponent(taskId)}` : ""}`)
+  cancelTask = (id: string) => this.request<Task>(`/api/tasks/${id}/cancel`, "POST")
+  approval = (id: string) => this.request<Approval>(`/api/tasks/${id}/approval`)
+  decideApproval = (id: string, decision: "approve" | "reject") => this.request<{ state: string; diff_hash: string }>(`/api/tasks/${id}/approval`, "POST", { decision })
+  createDraftPullRequest = (id: string) => this.request<{ status: string }>(`/api/tasks/${id}/pull-request`, "POST")
+
+  createTask(input: { repository_id: string; project_id?: string; base_branch?: string; title: string; description: string }) {
+    return this.request<Task>("/api/tasks", "POST", input)
+  }
+
+  async streamTask(id: string, after: number, signal: AbortSignal, onEvent: (event: TaskEvent) => void): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/api/tasks/${id}/events?after=${after}`, {
+      headers: { Authorization: `Bearer ${this.token}` },
+      signal,
+    })
+    if (!response.ok || !response.body) throw new Error(`Task stream failed with HTTP ${response.status}`)
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ""
+    while (true) {
+      const { value, done } = await reader.read()
+      buffer += decoder.decode(value, { stream: !done })
+      const frames = buffer.split(/\r?\n\r?\n/)
+      buffer = frames.pop() || ""
+      for (const frame of frames) {
+        const line = frame.split(/\r?\n/).find((item) => item.startsWith("data: "))
+        if (!line) continue
+        try {
+          const parsed = JSON.parse(line.slice(6))
+          if (parsed.id) onEvent(parsed as TaskEvent)
+        } catch { /* malformed server event is ignored; the stream remains live */ }
+      }
+      if (done) return
+    }
   }
 }

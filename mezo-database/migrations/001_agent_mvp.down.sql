@@ -1,0 +1,12 @@
+DROP TABLE IF EXISTS provider_configs;
+DROP TABLE IF EXISTS system_settings;
+DROP TABLE IF EXISTS audit_chain_head;
+DROP TABLE IF EXISTS audit_logs;
+DROP TABLE IF EXISTS approvals;
+DROP TABLE IF EXISTS task_events;
+DROP TABLE IF EXISTS task_steps;
+DROP TABLE IF EXISTS tasks;
+DROP TABLE IF EXISTS runners;
+DROP TABLE IF EXISTS projects;
+DROP TABLE IF EXISTS repositories;
+DROP TABLE IF EXISTS users;

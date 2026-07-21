@@ -1,34 +1,60 @@
-version: '3.8'
-
 services:
-  frontend:
-    build:
-      context: ../..
-      dockerfile: mezo-deployment/docker/Dockerfile.frontend
-    ports:
-      - "3000:80"
-
-  backend:
-    build:
-      context: ../..
-      dockerfile: mezo-deployment/docker/Dockerfile.backend
-    ports:
-      - "5000:5000"
-    environment:
-      - PORT=5000
-
-  ai-engine:
-    build:
-      context: ../..
-      dockerfile: mezo-deployment/docker/Dockerfile.ai-engine
-    ports:
-      - "8000:8000"
-
   postgres:
-    image: postgres:15-alpine
+    image: postgres:17-alpine
     environment:
-      POSTGRES_USER: mezo_user
-      POSTGRES_PASSWORD: mezo_password
-      POSTGRES_DB: mezo_db
+      POSTGRES_USER: mezo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: mezo
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mezo -d mezo"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: ../..
+      dockerfile: mezo-control-plane/Dockerfile
+    environment:
+      MEZO_ENV: production
+      DATABASE_URL: postgresql+psycopg://mezo:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/mezo
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      AUDIT_HMAC_KEY: ${AUDIT_HMAC_KEY:?set AUDIT_HMAC_KEY}
+      MEZO_BOOTSTRAP_TOKEN: ${MEZO_BOOTSTRAP_TOKEN:?set MEZO_BOOTSTRAP_TOKEN}
+      RUNNER_REGISTRATION_TOKEN: ${RUNNER_REGISTRATION_TOKEN:?set RUNNER_REGISTRATION_TOKEN}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8080}
+      GITHUB_APP_ID: ${GITHUB_APP_ID:-}
+      GITHUB_INSTALLATION_ID: ${GITHUB_INSTALLATION_ID:-}
+      GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
-      - "5432:5432"
+      - "8080:8080"
+    command: ["sh", "-c", "python /app/database/migrate.py up && exec uvicorn main:app --host 0.0.0.0 --port 8080"]
+
+  runner:
+    profiles: ["runner"]
+    build:
+      context: ../..
+      dockerfile: mezo-runner/Dockerfile
+    environment:
+      MEZO_API_URL: http://api:8080
+      RUNNER_REGISTRATION_TOKEN: ${RUNNER_REGISTRATION_TOKEN:?set RUNNER_REGISTRATION_TOKEN}
+      RUNNER_NAME: mezo-runner-local
+      WORKSPACE_ROOT: /workspaces
+      RUNNER_DATA_ROOT: /data
+      KILOCODE_API_KEY: ${KILOCODE_API_KEY:-}
+      KILO_MODEL: ${KILO_MODEL:-}
+    depends_on:
+      - api
+    volumes:
+      - runner-data:/data
+      - runner-workspaces:/workspaces
+
+volumes:
+  postgres-data:
+  runner-data:
+  runner-workspaces:

@@ -1,8 +1,0 @@
-CREATE TABLE IF NOT EXISTS skills (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(150) UNIQUE NOT NULL,
-    category VARCHAR(100) NOT NULL,
-    description TEXT,
-    is_enabled BOOLEAN DEFAULT true,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
