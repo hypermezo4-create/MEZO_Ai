@@ -1,0 +1,23 @@
+# Unified requirements for building the MEZO AI backend executable
+
+# Core FastAPI & Server
+fastapi>=0.110.0
+uvicorn>=0.28.0
+pydantic>=2.6.0
+pyyaml>=6.0
+requests>=2.31.0
+click>=8.1.0
+
+# PyInstaller & Testing
+pyinstaller>=6.4.0
+pytest>=8.0.0
+pytest-asyncio>=0.23.5
+
+# Security / Integrations / Providers
+docker>=7.0.0
+PyGithub>=2.1.1
+google-generativeai>=0.4.0
+
+# Note: We omit huge ML dependencies (torch, transformers) from the main executable build
+# by default to keep the binary small, assuming inference uses the Gemini API fallback 
+# or a separately managed local model provider when packaged as an .exe.

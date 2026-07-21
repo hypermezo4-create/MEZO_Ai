@@ -1,0 +1,86 @@
+name: MEZO AI CI/CD
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  release:
+    types: [ created ]
+
+jobs:
+  test-and-package-backend:
+    name: Backend Test & Package (Windows)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+
+      - name: Install Backend Dependencies
+        run: pip install -r requirements-build.txt
+
+      - name: Run Backend Tests
+        run: |
+          pytest mezo-control-plane/tests/
+          pytest mezo-security/tests/
+          pytest mezo-training/tests/
+
+      - name: Build Standalone Executable
+        run: |
+          pyinstaller --onefile --name mezo-backend mezo_launcher.py
+
+      - name: Upload Backend Executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: mezo-backend-windows
+          path: dist/mezo-backend.exe
+
+  build-frontend:
+    name: Frontend Build (Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build Frontend
+        run: npm run build:web
+
+      - name: Upload Frontend Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mezo-frontend-dist
+          path: mezo-frontend/dist/
+
+  deploy-release:
+    name: Attach to GitHub Release
+    needs: [test-and-package-backend, build-frontend]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+          merge-multiple: true
+
+      - name: Upload Assets to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ./artifacts/mezo-backend.exe
+            # Optionally zip the frontend dist and upload it too
