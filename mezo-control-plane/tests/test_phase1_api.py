@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from src.config import get_settings
 from src.database import SessionLocal
 from src.models import Approval, AuditLog, Task, TaskStatus, User, utcnow
 from src.security import hash_password, issue_access_token
@@ -92,7 +93,7 @@ def test_expired_lease_is_recovered_by_another_runner(client, task, runner):
         db.commit()
     second = client.post(
         "/api/runners/register",
-        headers={"X-Runner-Registration-Token": "test-runner-registration-token"},
+        headers={"X-Runner-Registration-Token": get_settings().runner_registration_token},
         json={"name": "runner-two", "version": "1.0.0", "capabilities": {}},
     ).json()
     response = client.post("/api/runner/tasks/lease", headers={"Authorization": f"Bearer {second['runner_token']}"})

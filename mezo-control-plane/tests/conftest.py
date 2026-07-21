@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from main import app
+from src.config import get_settings
 from src.database import Base, engine
 
 
@@ -29,7 +30,7 @@ def client():
 def owner_headers(client):
     response = client.post(
         "/api/auth/bootstrap",
-        headers={"X-MEZO-Bootstrap-Token": "test-bootstrap-token"},
+        headers={"X-MEZO-Bootstrap-Token": get_settings().bootstrap_token},
         json={"email": "owner@example.com", "password": "correct-horse-battery-staple"},
     )
     assert response.status_code == 201
@@ -51,7 +52,7 @@ def repository(client, owner_headers):
 def runner(client):
     response = client.post(
         "/api/runners/register",
-        headers={"X-Runner-Registration-Token": "test-runner-registration-token"},
+        headers={"X-Runner-Registration-Token": get_settings().runner_registration_token},
         json={"name": "runner-one", "version": "1.0.0", "capabilities": {"max_concurrency": 1}},
     )
     assert response.status_code == 201

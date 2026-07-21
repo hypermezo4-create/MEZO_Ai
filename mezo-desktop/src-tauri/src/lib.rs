@@ -1,5 +1,8 @@
-use tauri::{tray::TrayIconBuilder, menu::{Menu, MenuItem}};
 use tauri::Manager;
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::TrayIconBuilder,
+};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -19,7 +22,7 @@ pub fn run() {
                 .build(app)?;
 
             tray.set_tooltip(Some("MEZO AI remote agent client"))?;
-            
+
             Ok(())
         })
         .run(tauri::generate_context!())
