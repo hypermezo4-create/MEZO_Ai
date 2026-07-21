@@ -18,6 +18,7 @@ import {
   MessageSquareText,
   MonitorDot,
   RefreshCw,
+  Settings,
   SlidersHorizontal,
   Timer,
   Trash2,
@@ -42,13 +43,15 @@ const message = (role: ChatMessage["role"], content: string): ChatMessage => {
 }
 
 export default function App() {
+  const isMobile = typeof navigator !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
   const servedByEngine = typeof window !== "undefined" && window.location.port !== "5173" && window.location.protocol.startsWith("http")
-  const defaultBase = servedByEngine ? `${window.location.origin}/v1` : "http://127.0.0.1:8081"
+  const defaultBase = isMobile ? "" : servedByEngine ? `${window.location.origin}/v1` : "http://127.0.0.1:8081"
   const [baseUrl, setBaseUrl] = useState(() => {
     const saved = stored(localStorage, "mezo.baseUrl", defaultBase)
-    if (servedByEngine && saved === "http://127.0.0.1:8081" && defaultBase !== saved) return defaultBase
+    if (!isMobile && servedByEngine && saved === "http://127.0.0.1:8081" && defaultBase !== saved) return defaultBase
     return saved
   })
+  const [showSettings, setShowSettings] = useState(isMobile && baseUrl === "")
   const [apiKey, setApiKey] = useState("")
   const [models, setModels] = useState<string[]>([])
   const [model, setModel] = useState(() => stored(localStorage, "mezo.model", "auto"))
@@ -320,8 +323,22 @@ export default function App() {
               {lastRun?.queueWaitMs != null ? <Badge><Clock className="size-3" /> queue {Math.round(lastRun.queueWaitMs)}ms</Badge> : null}
               <Badge><MonitorDot className="size-3" /> slot {cacheSlot + 1}</Badge>
               <Button variant="ghost" size="sm" onClick={() => { updateMessages([]); setTokPerSec(null); setTtft(null); setTokenCount(0); setTotalTokens({prompt:0,completion:0}) }} disabled={!messages.length || loading}><Trash2 className="size-3.5" /> Clear</Button>
+              {isMobile && <Button variant="ghost" size="sm" onClick={() => setShowSettings(true)}><Settings className="size-3.5" /></Button>}
             </div>
         </header>
+
+        {showSettings && (
+          <div className="settings-modal-backdrop">
+            <div className="settings-modal">
+              <div className="orb"><Layers /></div>
+              <h2>MEZO AI <br/>Connection Setup</h2>
+              <p>Enter your Desktop's IP address (e.g. <code>http://192.168.1.100:8081</code>) or your remote Fly.io URL.</p>
+              <label>API Endpoint</label>
+              <Input autoFocus value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="http://..." />
+              <Button onClick={() => { setShowSettings(false); connect(); }} disabled={!baseUrl.trim()}>Connect</Button>
+            </div>
+          </div>
+        )}
 
         {view === "brain" ? <Brain baseUrl={baseUrl} apiKey={apiKey} connected={connected} />
           : view === "profiling" ? <Profiling baseUrl={baseUrl} apiKey={apiKey} connected={connected} /> : <>

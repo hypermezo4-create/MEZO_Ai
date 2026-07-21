@@ -133,9 +133,64 @@ jobs:
           name: mezo-desktop-windows
           path: mezo-frontend/src-tauri/target/release/bundle/msi/*.msi
 
+  build-mobile-android:
+    name: Mobile Build (Android)
+    needs: [build-frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: 'npm'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup NDK
+        run: |
+          echo "y" | sdkmanager "ndk;25.2.9519653"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653" >> $GITHUB_ENV
+
+      - name: Download Frontend Dist
+        uses: actions/download-artifact@v4
+        with:
+          name: mezo-frontend-dist
+          path: mezo-frontend/dist
+
+      - name: Install Frontend Deps
+        run: cd mezo-frontend && npm ci
+
+      - name: Init and Build Tauri Android
+        run: |
+          cd mezo-frontend
+          npx tauri android init
+          npx tauri android build --debug
+        shell: bash
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mezo-mobile-android
+          path: mezo-frontend/src-tauri/gen/android/app/build/outputs/apk/universal/debug/*.apk
+
   deploy-release:
     name: Attach to GitHub Release
-    needs: [test-and-package-backend, build-frontend, build-desktop-windows]
+    needs: [test-and-package-backend, build-frontend, build-desktop-windows, build-mobile-android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -151,6 +206,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: mezo-desktop-windows
+          path: ./artifacts
+
+      - name: Download Android APK
+        uses: actions/download-artifact@v4
+        with:
+          name: mezo-mobile-android
           path: ./artifacts
 
       - name: Download Frontend
@@ -171,4 +232,5 @@ jobs:
           files: |
             ./artifacts/mezo-backend.exe
             ./artifacts/*.msi
+            ./artifacts/*.apk
             ./artifacts/mezo-frontend-dist.zip
