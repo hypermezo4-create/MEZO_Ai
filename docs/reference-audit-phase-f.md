@@ -117,3 +117,21 @@ None needed for Phase F-I. All relevant lessons are architectural patterns, not 
 ---
 
 *This document satisfies the Section 5 requirement of the MEZO AI Full Autonomy Task spec. Plugin code development proceeds from here.*
+
+---
+
+## 5. Phase J — Deep Transplant
+
+### 5.1 From `Ahmed_AI_Agent_Tools` (License: All-Rights-Reserved)
+*Note: Concepts and patterns adapted only. No direct code copy.*
+
+- **Retry/Backoff Logic:** We will adopt a battle-tested exponential backoff curve with jitter for flaky tool calls or API errors, specifically within `provider_router.py` for handling Gemini 429 errors.
+- **Correlation IDs:** Found structured logging correlation traces in `config/docker-mcp/catalogs/docker-mcp.yaml`. We will adopt a standard `X-Request-ID` or correlation ID flow through our `audit_logger.py` to trace actions across the stack.
+- **CLI Ergonomics:** Will adapt argument parsing and interactive prompting patterns for `mezo-control-plane/src/interfaces/cli.py`.
+- **Test Fixtures:** We will adopt the JSON fixture contract testing pattern found in `tests/` to ensure our new mobile and shared client logic matches the backend.
+
+### 5.2 From `colibri` (License: Apache 2.0)
+*Note: Code and patterns adapted with attribution.*
+
+- **Tauri Shell Architecture:** Extracted the configuration from `colibri/desktop/src-tauri/tauri.conf.json`. It maps `"frontendDist": "../../web/dist"` to wrap the shared web application directly without forking. This exact pattern will be used for `mezo-desktop`.
+- **OpenAI-Compatible Gateway:** Inspected `colibri/c/openai_server.py`. It implements a robust, dependency-free OpenAI-compatible API layer. We will reconcile `local_provider.py` to ensure it precisely mirrors this expected contract shape.

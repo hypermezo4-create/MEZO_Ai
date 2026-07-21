@@ -1,0 +1,9 @@
+{
+  "status": "success",
+  "provider": "gemini",
+  "reason": "fallback from local engine",
+  "result": {
+    "text": "Hello! I am MEZO AI.",
+    "tool_calls": []
+  }
+}

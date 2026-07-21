@@ -1,0 +1,17 @@
+[package]
+name = "mezo-desktop"
+version = "1.0.0"
+description = "Native desktop shell for MEZO AI"
+authors = ["MEZO AI"]
+edition = "2024"
+rust-version = "1.85"
+
+[lib]
+name = "mezo_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+tauri = { version = "2.11.5", features = ["tray-icon", "updater"] }

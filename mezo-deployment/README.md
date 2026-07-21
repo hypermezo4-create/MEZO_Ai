@@ -21,6 +21,13 @@
 fly secrets set GEMINI_API_KEY="your_api_key" JWT_SECRET="your_jwt_secret" -a mezo-backend
 ```
 
+## Vercel Web Deployment
+
+MEZO AI utilizes Vercel solely for hosting the static React SPA frontend. All stateful connections, including WebSockets/SSE for token streaming, remain on the Fly.io backend because of Vercel's serverless function execution time limits.
+
+- **Vercel Preview Deployments**: Per-PR preview URLs (`https://mezo-ai-*.vercel.app`) dynamically talk to the staging Fly backend. They are enabled dynamically in the backend CORS configuration.
+- **Production Domain**: The static production frontend uses `VITE_API_BASE_URL` to route requests to the Fly production backend.
+
 ## التشغيل المحلي عبر Docker Compose
 ```bash
 docker-compose -f docker/docker-compose.yml up -d
