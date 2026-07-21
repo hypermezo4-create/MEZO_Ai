@@ -22,14 +22,33 @@ jobs:
           python-version: "3.11"
           cache: 'pip'
 
-      - name: Install Backend Dependencies
-        run: pip install -r requirements-build.txt
-
-      - name: Run Backend Tests
+      - name: Strict Dependency Audit & Test (mezo-control-plane)
         run: |
+          python -m venv venv-cp
+          # On Windows runners, use Scripts/activate
+          ./venv-cp/Scripts/activate
+          pip install -r mezo-control-plane/requirements.txt pytest pytest-asyncio
           pytest mezo-control-plane/tests/
+        shell: bash
+
+      - name: Strict Dependency Audit & Test (mezo-security)
+        run: |
+          python -m venv venv-sec
+          ./venv-sec/Scripts/activate
+          pip install -r mezo-security/requirements.txt pytest pytest-asyncio
           pytest mezo-security/tests/
+        shell: bash
+
+      - name: Strict Dependency Audit & Test (mezo-training)
+        run: |
+          python -m venv venv-train
+          ./venv-train/Scripts/activate
+          pip install -r mezo-training/requirements.txt pytest pytest-asyncio
           pytest mezo-training/tests/
+        shell: bash
+
+      - name: Install Build Dependencies (PyInstaller)
+        run: pip install -r requirements-build.txt
 
       - name: Build Standalone Executable
         run: |
@@ -54,7 +73,7 @@ jobs:
           node-version: "20"
           cache: 'npm'
 
-      - name: Install Dependencies
+      - name: Fail-Fast Dependency Check (npm ci)
         run: npm ci
 
       - name: Build Frontend
