@@ -3,6 +3,7 @@ import json
 import httpx
 from typing import AsyncGenerator, Dict, Any, List, Optional
 from src.providers.base_provider import BaseAIProvider, ProviderCapabilities, GenerationChunk, GenerationResponse
+from src.persona.system_prompt import get_system_prompt
 
 class GeminiQuotaException(Exception):
     """Raised when Gemini API quota or rate limit (429) is exceeded."""
@@ -44,12 +45,15 @@ class GeminiAIProvider(BaseAIProvider):
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY environment variable is missing or empty.")
 
+        # Always use the persona module as source of truth — never inline persona text
+        resolved_system_prompt = system_prompt or get_system_prompt()
+
         contents = []
-        if system_prompt:
-            contents.append({"role": "user", "parts": [{"text": f"System Instruction: {system_prompt}"}]})
-            contents.append({"role": "model", "parts": [{"text": "Understood. I will follow instructions."}]})
-        
+        # Inject MEZO AI persona as the system instruction via the conversation turn pattern
+        contents.append({"role": "user", "parts": [{"text": f"System Instruction:\n{resolved_system_prompt}"}]})
+        contents.append({"role": "model", "parts": [{"text": "Understood. I am MEZO AI and will follow these instructions."}]})
         contents.append({"role": "user", "parts": [{"text": prompt}]})
+
 
         payload = {"contents": contents}
 

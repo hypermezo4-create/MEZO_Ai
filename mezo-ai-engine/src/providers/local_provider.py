@@ -3,6 +3,7 @@ import json
 import httpx
 from typing import AsyncGenerator, Dict, Any, List, Optional
 from src.providers.base_provider import BaseAIProvider, ProviderCapabilities, GenerationChunk, GenerationResponse
+from src.persona.system_prompt import get_system_prompt
 
 class LocalAIProvider(BaseAIProvider):
     def __init__(self, base_url: Optional[str] = None, model: str = "llama3"):
@@ -33,13 +34,14 @@ class LocalAIProvider(BaseAIProvider):
         stream: bool = True
     ) -> AsyncGenerator[GenerationChunk, None] | GenerationResponse:
 
+        # Always use the persona module as source of truth — never inline persona text
+        resolved_system_prompt = system_prompt or get_system_prompt()
         payload = {
             "model": self.model,
             "prompt": prompt,
-            "stream": stream
+            "stream": stream,
+            "system": resolved_system_prompt,
         }
-        if system_prompt:
-            payload["system"] = system_prompt
 
         if not stream:
             async with httpx.AsyncClient(timeout=60.0) as client:

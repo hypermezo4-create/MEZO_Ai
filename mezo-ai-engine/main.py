@@ -10,6 +10,7 @@ from src.utils.memory_manager import MemoryManager
 from src.providers.local_provider import LocalAIProvider
 from src.providers.gemini_provider import GeminiAIProvider
 from src.providers.provider_router import ProviderRouter, GeminiQuotaException
+from src.persona.system_prompt import get_system_prompt, MEZO_AI_SYSTEM_PROMPT
 
 app = FastAPI(title="MEZO AI Engine", version="1.0.0")
 
@@ -25,13 +26,20 @@ class GenerateRequest(BaseModel):
     prompt: str
     preferred_provider: Optional[str] = "auto"
     system_prompt: Optional[str] = None
+    user_id: Optional[str] = None       # for personalization context
     max_tokens: int = 512
     temperature: float = 0.7
     stream: bool = True
 
 @app.get("/")
 def read_root():
-    return {"service": "MEZO AI Engine", "status": "active"}
+    return {"service": "MEZO AI", "version": "2.0.0", "status": "active"}
+
+
+@app.get("/persona")
+def get_persona():
+    """Returns the current MEZO AI system prompt. For debugging and transparency."""
+    return {"persona": MEZO_AI_SYSTEM_PROMPT, "source": "src/persona/system_prompt.py"}
 
 @app.get("/providers/capabilities")
 async def get_provider_capabilities():
