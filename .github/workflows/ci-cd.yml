@@ -86,9 +86,56 @@ jobs:
           name: mezo-frontend-dist
           path: mezo-frontend/dist/
 
+  build-desktop-windows:
+    name: Desktop Build (Windows)
+    needs: [test-and-package-backend, build-frontend]
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: 'npm'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Download Frontend Dist
+        uses: actions/download-artifact@v4
+        with:
+          name: mezo-frontend-dist
+          path: mezo-frontend/dist
+
+      - name: Download Backend Sidecar
+        uses: actions/download-artifact@v4
+        with:
+          name: mezo-backend-windows
+          path: mezo-frontend/src-tauri/bin
+      
+      - name: Rename Sidecar for Tauri
+        run: |
+          cd mezo-frontend/src-tauri/bin
+          mv mezo-backend.exe mezo-backend-x86_64-pc-windows-msvc.exe
+        shell: bash
+
+      - name: Install Frontend Deps
+        run: cd mezo-frontend && npm ci
+
+      - name: Build Tauri
+        run: cd mezo-frontend && npx tauri build
+
+      - name: Upload Desktop Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: mezo-desktop-windows
+          path: mezo-frontend/src-tauri/target/release/bundle/msi/*.msi
+
   deploy-release:
     name: Attach to GitHub Release
-    needs: [test-and-package-backend, build-frontend]
+    needs: [test-and-package-backend, build-frontend, build-desktop-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -98,6 +145,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: mezo-backend-windows
+          path: ./artifacts
+
+      - name: Download Desktop Installer
+        uses: actions/download-artifact@v4
+        with:
+          name: mezo-desktop-windows
           path: ./artifacts
 
       - name: Download Frontend
@@ -117,4 +170,5 @@ jobs:
         with:
           files: |
             ./artifacts/mezo-backend.exe
+            ./artifacts/*.msi
             ./artifacts/mezo-frontend-dist.zip
