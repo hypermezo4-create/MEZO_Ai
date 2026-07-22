@@ -11,7 +11,7 @@ function ConvertFrom-FlyJsonOutput {
         $errorText = ($errorSource -replace '\s+', ' ').Trim()
         throw "Fly command '$CommandName' failed (exit $ExitCode): $errorText"
     }
-    if (-not $text -or $text -in @('null', '[]') -or $text -match '(?i)^no\s+.*(managed\s+postgres|resources?|machines?|volumes?|apps?).*found\.?$') {
+    if (-not $text -or $text -in @('null', '[]') -or $text -match '(?i)^no\s+.*(managed\s+postgres|resources?|machines?|volumes?|apps?).*found(?:\s+.*)?\.?$') {
         return @()
     }
     if ($text[0] -notin @('{', '[')) {
