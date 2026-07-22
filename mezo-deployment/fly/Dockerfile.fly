@@ -1,5 +1,0 @@
-FROM node:18-alpine
-WORKDIR /app
-COPY ../mezo-backend .
-RUN npm ci --only=production
-CMD ["node", "index.js"]

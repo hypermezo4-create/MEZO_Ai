@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capability for the main colibri window",
+  "description": "Default read-only capability for the MEZO remote client",
   "windows": ["main"],
   "permissions": ["core:default"]
 }

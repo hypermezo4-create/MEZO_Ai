@@ -1,0 +1,51 @@
+app = "mezo-api"
+primary_region = "ams"
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+
+[build]
+  dockerfile = "mezo-control-plane/Dockerfile"
+
+[deploy]
+  release_command = "python /app/database/migrate.py up"
+  strategy = "rolling"
+
+[env]
+  MEZO_ENV = "production"
+  PORT = "8080"
+  ACCESS_TOKEN_MINUTES = "30"
+  TASK_LEASE_SECONDS = "120"
+  RUNNER_OFFLINE_SECONDS = "45"
+  APPROVAL_EXPIRATION_MINUTES = "30"
+
+[mounts]
+  source = "mezo_api_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 100
+    hard_limit = 150
+
+  [[http_service.checks]]
+    interval = "15s"
+    timeout = "3s"
+    grace_period = "20s"
+    method = "GET"
+    path = "/healthz"
+
+[[vm]]
+  size = "performance-16x"
+  memory = "128gb"
+
+[[restart]]
+  policy = "on-failure"
+  retries = 5

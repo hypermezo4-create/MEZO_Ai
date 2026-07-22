@@ -1,383 +1,219 @@
-import { useEffect, useMemo, useRef, useState } from "react"
-import {
-  Activity,
-  ArrowUp,
-  BrainCircuit,
-  CircleStop,
-  Clock,
-  Cpu,
-  Database,
-  Feather,
-  Gauge,
-  HardDrive,
-  KeyRound,
-  Layers,
-  Link2,
-  LoaderCircle,
-  MemoryStick,
-  MessageSquareText,
-  MonitorDot,
-  RefreshCw,
-  Settings,
-  SlidersHorizontal,
-  Timer,
-  Trash2,
-  Zap,
-} from "lucide-react"
+import { FormEvent, useEffect, useRef, useState } from "react"
+import { AlertTriangle, CheckCircle2, CircleStop, Code2, FileCode2, FolderGit2, GitPullRequest, History, ListChecks, LoaderCircle, LockKeyhole, Play, Radio, Server, ShieldCheck } from "lucide-react"
 
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
-import { getHealth, listModels, streamChat, type ChatMessage, type HealthResponse, type StreamChatResult } from "@/lib/api"
-import { activeRequests, supportsCacheSlots } from "@/lib/runtime"
-import { Brain } from "./Brain"
-import { Profiling } from "./Profiling"
-import { persistPublicSettings, stored } from "@/lib/storage"
-import { cn } from "@/lib/utils"
+import { Approval, MezoApi, MezoApiError, Project, Repository, Runner, Task, TaskEvent } from "@/lib/api"
 
-const message = (role: ChatMessage["role"], content: string): ChatMessage => {
-  let id: string
-  try { id = crypto.randomUUID() } catch { id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16) }) }
-  return { id, role, content }
+const api = new MezoApi()
+const terminalTypes = new Set(["command_start", "stdout", "stderr", "command_finish"])
+const terminalText = (event: TaskEvent) => String(event.payload.message || event.payload.command || `${event.type}${event.payload.exit_code !== undefined ? ` (exit ${event.payload.exit_code})` : ""}`)
+const terminalState = new Set(["completed", "failed", "cancelled"])
+
+function Login({ onReady }: { onReady: () => void }) {
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [bootstrapToken, setBootstrapToken] = useState("")
+  const [bootstrap, setBootstrap] = useState(false)
+  const [error, setError] = useState("")
+  const [busy, setBusy] = useState(false)
+  const submit = async (event: FormEvent) => {
+    event.preventDefault(); setBusy(true); setError("")
+    try {
+      if (bootstrap) await api.bootstrap(email, password, bootstrapToken)
+      else await api.login(email, password)
+      onReady()
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Authentication failed") }
+    finally { setBusy(false) }
+  }
+  return <main className="login-shell"><form className="login-card" onSubmit={submit}>
+    <div className="logo"><Code2 /><span>MEZO AI</span></div>
+    <h1>{bootstrap ? "Create the first owner" : "Sign in to the control plane"}</h1>
+    <p>Credentials are exchanged for an expiring bearer token and kept in memory only.</p>
+    <label>Email<input type="email" required value={email} onChange={e => setEmail(e.target.value)} /></label>
+    <label>Password<input type="password" required minLength={bootstrap ? 12 : undefined} value={password} onChange={e => setPassword(e.target.value)} /></label>
+    {bootstrap && <label>Bootstrap token<input type="password" required value={bootstrapToken} onChange={e => setBootstrapToken(e.target.value)} /></label>}
+    {error && <div className="error"><AlertTriangle />{error}</div>}
+    <button className="primary" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : <LockKeyhole />}{bootstrap ? "Bootstrap owner" : "Sign in"}</button>
+    <button type="button" className="link" onClick={() => setBootstrap(value => !value)}>{bootstrap ? "Return to sign in" : "First deployment? Bootstrap the owner"}</button>
+  </form></main>
 }
 
 export default function App() {
-  const isMobile = typeof navigator !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-  const servedByEngine = typeof window !== "undefined" && window.location.port !== "5173" && window.location.protocol.startsWith("http")
-  const defaultBase = isMobile ? "" : servedByEngine ? `${window.location.origin}/v1` : "http://127.0.0.1:8081"
-  const [baseUrl, setBaseUrl] = useState(() => {
-    const saved = stored(localStorage, "mezo.baseUrl", defaultBase)
-    if (!isMobile && servedByEngine && saved === "http://127.0.0.1:8081" && defaultBase !== saved) return defaultBase
-    return saved
-  })
-  const [showSettings, setShowSettings] = useState(isMobile && baseUrl === "")
-  const [apiKey, setApiKey] = useState("")
-  const [models, setModels] = useState<string[]>([])
-  const [model, setModel] = useState(() => stored(localStorage, "mezo.model", "auto"))
-  const [temperature, setTemperature] = useState(0.7)
-  const [maxTokens, setMaxTokens] = useState(512)
-  const [thinking, setThinking] = useState(false)
-  const [cacheSlot, setCacheSlot] = useState(0)
-  const [conversations, setConversations] = useState<Record<number, ChatMessage[]>>({ 0: [] })
-  const [health, setHealth] = useState<HealthResponse | null>(null)
-  const [healthError, setHealthError] = useState("")
-  const [lastRun, setLastRun] = useState<StreamChatResult | null>(null)
-  const [draft, setDraft] = useState("")
-  const [loading, setLoading] = useState(false)
-  const [streamStart, setStreamStart] = useState<number | null>(null)
-  const [tokenCount, setTokenCount] = useState(0)
-  const [tokPerSec, setTokPerSec] = useState<number | null>(null)
-  const [ttft, setTtft] = useState<number | null>(null)
-  const [totalTokens, setTotalTokens] = useState({ prompt: 0, completion: 0 })
-  const [connecting, setConnecting] = useState(false)
-  const [connected, setConnected] = useState(false)
-  const [view, setView] = useState<"chat" | "brain" | "profiling">("chat")
+  const [authenticated, setAuthenticated] = useState(false)
+  const [repositories, setRepositories] = useState<Repository[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [runners, setRunners] = useState<Runner[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [events, setEvents] = useState<TaskEvent[]>([])
+  const [approval, setApproval] = useState<Approval | null>(null)
+  const [auditValid, setAuditValid] = useState<boolean | null>(null)
+  const [repoId, setRepoId] = useState("")
+  const [title, setTitle] = useState("")
+  const [description, setDescription] = useState("")
   const [error, setError] = useState("")
-  const autoConnected = useRef(false)
+  const [busy, setBusy] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
-  const probeRef = useRef<AbortController | null>(null)
-  const bottomRef = useRef<HTMLDivElement>(null)
-  const messages = conversations[cacheSlot] || []
-  const kvSlots = Math.max(1, health?.kv_slots || 1)
-  const active = activeRequests(health)
-  const capacity = health?.scheduler?.capacity || kvSlots
-  const failures = health?.scheduler ? health.scheduler.rejected + health.scheduler.timed_out + health.scheduler.cancelled : 0
+  const selected = tasks.find(task => task.id === selectedId) || null
+  const terminalEvents = events.filter(event => terminalTypes.has(event.type))
+  const installedSkills = Array.from(new Set(runners.flatMap(runner => {
+    const skills = runner.capabilities.skills
+    return Array.isArray(skills) ? skills.filter((skill): skill is string => typeof skill === "string") : []
+  })))
 
-  const updateMessages = (next: ChatMessage[] | ((current: ChatMessage[]) => ChatMessage[])) =>
-    setConversations((current) => ({
-      ...current,
-      [cacheSlot]: typeof next === "function" ? next(current[cacheSlot] || []) : next,
-    }))
+  const refreshOverview = async () => {
+    const [nextRepos, nextProjects, nextTasks, nextRunners, audit] = await Promise.all([
+      api.repositories(), api.projects(), api.tasks(), api.runners(), api.audit(),
+    ])
+    setRepositories(nextRepos); setProjects(nextProjects); setTasks(nextTasks); setRunners(nextRunners); setAuditValid(audit.integrity_valid)
+    if (!repoId && nextRepos[0]) setRepoId(nextRepos[0].id)
+  }
 
-  // EFFECT #1
-  useEffect(() => {
-    persistPublicSettings(localStorage, baseUrl, model)
-  }, [baseUrl, model])
-
-  // EFFECT #2
-  useEffect(() => {
-    setConnected(false)
-    setHealth(null)
-    setHealthError("")
-  }, [baseUrl, apiKey])
-
-  // EFFECT #3
-  useEffect(() => () => {
-    probeRef.current?.abort()
-    abortRef.current?.abort()
-  }, [])
-
-  // EFFECT #4
-  useEffect(() => {
-    if (!connected) return
-    let disposed = false
-    const poll = async () => {
-      if (document.visibilityState === "hidden") return
-      try {
-        const result = await getHealth(baseUrl, apiKey)
-        if (!disposed) { setHealth(result); setHealthError("") }
-      } catch (cause) {
-        if (!disposed) setHealthError(cause instanceof Error ? cause.message : "Runtime metrics unavailable")
-      }
-    }
-    const timer = window.setInterval(() => void poll(), 5000)
-    return () => { disposed = true; window.clearInterval(timer) }
-  }, [apiKey, baseUrl, connected])
-
-  // EFFECT #5
-  useEffect(() => {
-    if (cacheSlot >= kvSlots) setCacheSlot(0)
-  }, [cacheSlot, kvSlots])
-
-  // EFFECT #6
-  useEffect(() => { setLastRun(null) }, [cacheSlot])
-
-  // EFFECT #7
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }) }, [messages])
-
-  const connect = async () => {
-    probeRef.current?.abort()
-    const controller = new AbortController()
-    probeRef.current = controller
-    setConnecting(true)
-    setError("")
+  const refreshApproval = async (taskId: string) => {
     try {
-      const found = await listModels(baseUrl, apiKey, controller.signal)
-      setModels(found)
-      if (found.length && !found.includes(model)) setModel(found[0])
-      setConnected(true)
-      try {
-        setHealth(await getHealth(baseUrl, apiKey, controller.signal))
-        setHealthError("")
-      } catch (cause) {
-        if (!controller.signal.aborted) {
-          setHealth(null)
-          setHealthError(cause instanceof Error ? cause.message : "Runtime metrics unavailable")
+      setApproval(await api.approval(taskId))
+    } catch (cause) {
+      if (cause instanceof MezoApiError && cause.status === 404) {
+        setApproval(null)
+        return
+      }
+      throw cause
+    }
+  }
+
+  useEffect(() => {
+    if (!authenticated) return
+    void refreshOverview().catch(cause => setError(cause instanceof Error ? cause.message : "Could not load MEZO"))
+    const timer = window.setInterval(() => {
+      void refreshOverview().catch(cause => setError(cause instanceof Error ? cause.message : "Could not refresh MEZO"))
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [authenticated])
+
+  useEffect(() => {
+    abortRef.current?.abort(); setEvents([]); setApproval(null)
+    if (!selectedId || !authenticated) return
+    const controller = new AbortController(); abortRef.current = controller
+    let lastId = 0
+    const refreshTask = async () => {
+      const task = await api.task(selectedId)
+      setTasks(current => current.map(item => item.id === task.id ? task : item))
+      if (task.approval_state !== "none") {
+        await refreshApproval(task.id)
+      } else {
+        setApproval(null)
+      }
+      return task
+    }
+    const watch = async () => {
+      while (!controller.signal.aborted) {
+        try {
+          await api.streamTask(selectedId, lastId, controller.signal, event => {
+            lastId = Math.max(lastId, event.id)
+            setEvents(current => current.some(item => item.id === event.id) ? current : [...current, event])
+          })
+          const task = await refreshTask()
+          if (terminalState.has(task.status)) return
+          await new Promise(resolve => window.setTimeout(resolve, 1000))
+        } catch (cause) {
+          if (controller.signal.aborted) return
+          setError(cause instanceof Error ? cause.message : "Task stream disconnected")
+          await new Promise(resolve => window.setTimeout(resolve, 1500))
         }
       }
-    } catch (cause) {
-      if (controller.signal.aborted) return
-      setConnected(false)
-      setError(cause instanceof Error ? cause.message : "Could not reach the server.")
-    } finally {
-      if (probeRef.current === controller) { probeRef.current = null; setConnecting(false) }
     }
-  }
+    void refreshTask().catch(cause => setError(cause instanceof Error ? cause.message : "Could not refresh task"))
+    const refreshTimer = window.setInterval(() => {
+      void refreshTask().catch(cause => setError(cause instanceof Error ? cause.message : "Could not refresh task"))
+    }, 2000)
+    void watch()
+    return () => { controller.abort(); window.clearInterval(refreshTimer) }
+  }, [selectedId, authenticated])
 
-  if (servedByEngine && !autoConnected.current && !connected) {
-    autoConnected.current = true
-    setTimeout(() => connect(), 0)
-  }
+  if (!authenticated) return <Login onReady={() => setAuthenticated(true)} />
 
-  const canSend = useMemo(() => draft.trim() && model && !loading, [draft, loading, model])
-
-  const send = async () => {
-    const content = draft.trim()
-    if (!content || loading) return
-    const user = message("user", content)
-    const assistant = message("assistant", "")
-    const history = [...messages, user]
-    setDraft("")
-    setError("")
-    updateMessages([...history, assistant])
-    setLoading(true)
-    setStreamStart(null)
-    setTokenCount(0)
-    setTokPerSec(null)
-    setTtft(null)
-    const t0 = performance.now()
-    let firstToken = true
-    let count = 0
-    const controller = new AbortController()
-    abortRef.current = controller
+  const submit = async (event: FormEvent) => {
+    event.preventDefault(); setBusy(true); setError("")
     try {
-      const result = await streamChat({
-        baseUrl,
-        apiKey,
-        model,
-        messages: history,
-        temperature,
-        maxTokens,
-        enableThinking: thinking,
-        cacheSlot: supportsCacheSlots(health) ? cacheSlot : undefined,
-        signal: controller.signal,
-        onDelta: (delta) => {
-          if (firstToken) { setTtft(performance.now() - t0); setStreamStart(performance.now()); firstToken = false }
-          count++
-          setTokenCount(count)
-          const elapsed = (performance.now() - (firstToken ? t0 : t0)) / 1000
-          if (elapsed > 0.3) setTokPerSec(count / ((performance.now() - t0) / 1000))
-          updateMessages((current) => current.map((item) =>
-            item.id === assistant.id ? { ...item, content: item.content + delta } : item,
-          ))
-        },
-      })
-      const finalElapsed = (performance.now() - t0) / 1000
-      if (count > 0 && finalElapsed > 0) setTokPerSec(count / finalElapsed)
-      if (result.usage) setTotalTokens(prev => ({
-        prompt: prev.prompt + (result.usage?.prompt_tokens || 0),
-        completion: prev.completion + (result.usage?.completion_tokens || 0),
-      }))
-      setLastRun(result)
-      setConnected(true)
-    } catch (cause) {
-      if (controller.signal.aborted) {
-        updateMessages((current) => current.filter((item) => item.id !== assistant.id || item.content))
-      } else {
-        setError(cause instanceof Error ? cause.message : "Generation failed.")
-        updateMessages((current) => current.filter((item) => item.id !== assistant.id || item.content))
-      }
-    } finally {
-      abortRef.current = null
-      setLoading(false)
-    }
+      const task = await api.createTask({ repository_id: repoId, title, description })
+      setTasks(current => [task, ...current]); setSelectedId(task.id); setTitle(""); setDescription("")
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Task creation failed") }
+    finally { setBusy(false) }
   }
 
-  return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand-row">
-          <div className="brand-mark"><Layers className="size-5" /></div>
-          <div><h1>MEZO AI</h1><p>autonomous intelligence</p></div>
-        </div>
+  const runTaskAction = async (action: () => Promise<unknown>) => {
+    setBusy(true); setError("")
+    try {
+      await action()
+      await refreshOverview()
+      if (selectedId) {
+        const task = await api.task(selectedId)
+        setTasks(current => current.map(item => item.id === task.id ? task : item))
+        await refreshApproval(selectedId)
+      }
+    }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Action failed") }
+    finally { setBusy(false) }
+  }
 
-        <section className="side-section">
-          <div className="section-title"><Link2 className="size-3.5" /> Connection</div>
-          <label>API endpoint<Input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} /></label>
-          <label>API key<div className="relative"><KeyRound className="field-icon" /><Input className="pl-9" type="password" value={apiKey} placeholder="optional" onChange={(event) => setApiKey(event.target.value)} /></div><span className="field-help">Kept in memory only · sent to this endpoint</span></label>
-          <Button type="button" variant="secondary" onClick={connect} disabled={connecting}>
-            {connecting ? <LoaderCircle className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-            Probe server
-          </Button>
-          <div className={cn("connection-state", connected && "connected")} aria-live="polite"><span />{connected ? "Engine reachable" : "Not connected"}</div>
-          {health?.lan_ip && <div className="connection-state">LAN IP: <code>http://{health.lan_ip}:8081</code></div>}
-        </section>
+  return <div className="mezo-shell">
+    <aside className="left-panel">
+      <div className="brand"><div className="brand-icon"><Code2 /></div><div><strong>MEZO AI</strong><span>Agent control plane</span></div></div>
+      <NavSection icon={<FolderGit2 />} title="Projects">{projects.length ? projects.map(project => <div className="nav-row" key={project.id}>{project.name}</div>) : <Empty text="No projects" />}</NavSection>
+      <NavSection icon={<History />} title="Conversations"><div className="nav-row active">Task workspace</div></NavSection>
+      <NavSection icon={<ListChecks />} title="Tasks">{tasks.map(task => <button key={task.id} className={`task-row ${selectedId === task.id ? "active" : ""}`} onClick={() => setSelectedId(task.id)}><span>{task.title}</span><Status value={task.status} /></button>)}</NavSection>
+      <NavSection icon={<Server />} title="Runners">{runners.length ? runners.map(runner => <div className="runner-row" key={runner.id}><span className={`runner-dot ${runner.status}`} /> <div><strong>{runner.name}</strong><small>{runner.status}{runner.current_task_id ? " · busy" : ""}</small></div></div>) : <Empty text="No registered runner" />}</NavSection>
+      <NavSection icon={<ShieldCheck />} title="Skills">{installedSkills.length ? <div className="skills">{installedSkills.map(skill => <span key={skill}>{skill}</span>)}</div> : <Empty text="No runner skills reported" />}</NavSection>
+      <div className={`audit ${auditValid === true ? "ok" : "bad"}`}><ShieldCheck /> Audit chain {auditValid === true ? "verified" : auditValid === false ? "invalid" : "checking"}</div>
+    </aside>
 
-        <section className="side-section runtime-section" aria-live="polite">
-          <div className="section-title"><Activity className="size-3.5" /> Runtime</div>
-          {health?.hwinfo ? <div className="hw-panel">
-            {health.hwinfo.cpu ? <div className="hw-row"><Cpu className="size-3.5" /><span>{health.hwinfo.cpu}</span></div> : null}
-            {health.hwinfo.gpus > 0 ? <div className="hw-row"><MonitorDot className="size-3.5" /><span>{health.hwinfo.gpus}× GPU<small>{health.hwinfo.vram_total_gb.toFixed(0)} GB VRAM</small></span></div> : null}
-            <div className="hw-row"><MemoryStick className="size-3.5" /><span>{health.hwinfo.ram_total_gb.toFixed(0)} GB RAM<small>{health.hwinfo.ram_avail_gb.toFixed(0)} GB free</small></span></div>
-            <div className="hw-row"><HardDrive className="size-3.5" /><span>{health.hwinfo.cores} cores</span></div>
-          </div> : null}
-          {health?.scheduler ? <>
-            <div className="runtime-grid">
-              <div><span>Active</span><strong>{active}<small> / {capacity}</small></strong></div>
-              <div><span>Queued</span><strong>{health.scheduler.queued}<small> / {health.scheduler.max_queue}</small></strong></div>
-              <div><span>Completed</span><strong>{health.scheduler.completed}</strong></div>
-              <div><span>Failures</span><strong>{failures}</strong></div>
-            </div>
-            {health.tiers ? (() => {
-              const t = health.tiers
-              const total = Math.max(t.vram + t.ram + t.disk, 1)
-              return <div className="tier-panel">
-                <div className="tier-bar" role="img" aria-label={`Experts: ${t.vram} VRAM, ${t.ram} RAM, ${t.disk} disk`}>
-                  <span className="tier-vram" style={{ width: `${(100 * t.vram) / total}%` }} />
-                  <span className="tier-ram" style={{ width: `${(100 * t.ram) / total}%` }} />
-                  <span className="tier-disk" style={{ width: `${(100 * t.disk) / total}%` }} />
-                </div>
-                <div className="tier-legend">
-                  <span><i className="tier-vram" />VRAM <strong>{t.vram.toLocaleString()}</strong><small>{t.vram_gb.toFixed(1)} GB</small></span>
-                  <span><i className="tier-ram" />RAM <strong>{t.ram.toLocaleString()}</strong><small>{t.ram_gb.toFixed(1)} GB</small></span>
-                  <span><i className="tier-disk" />Disk <strong>{t.disk.toLocaleString()}</strong></span>
-                </div>
-              </div>
-            })() : null}
-            {totalTokens.prompt + totalTokens.completion > 0 ? <div className="session-stats">
-              <span><Database className="size-3" /> Session: <strong>{totalTokens.prompt.toLocaleString()}</strong> prompt + <strong>{totalTokens.completion.toLocaleString()}</strong> completion</span>
-            </div> : null}
-            <div className="runtime-foot"><span className="runtime-dot" /> Scheduler online <code>{kvSlots} KV</code></div>
-          </> : <p className="runtime-unavailable">{connected ? (healthError || "Runtime metrics unavailable") : "Probe the server to inspect runtime state."}</p>}
-        </section>
+    <main className="center-panel">
+      <header><div><span className="kicker">REMOTE DEVELOPMENT AGENT</span><h1>{selected?.title || "Start a repository task"}</h1></div>{selected && <Status value={selected.status} />}</header>
+      {error && <div className="error banner"><AlertTriangle />{error}</div>}
+      {!selected ? <form className="task-composer" onSubmit={submit}>
+        <div className="chat-intro"><div className="agent-avatar">M</div><div><strong>MEZO</strong><p>Choose an authorized repository and describe the change. The runner will stop before every external write.</p></div></div>
+        <label>Repository<select required value={repoId} onChange={event => setRepoId(event.target.value)}><option value="" disabled>Select repository</option>{repositories.map(repo => <option value={repo.id} key={repo.id}>{repo.full_name}</option>)}</select></label>
+        <label>Task title<input required minLength={3} value={title} onChange={event => setTitle(event.target.value)} placeholder="Fix the failing validation workflow" /></label>
+        <label>Development task<textarea required minLength={3} value={description} onChange={event => setDescription(event.target.value)} placeholder="Describe the desired outcome, constraints, and acceptance criteria…" /></label>
+        <button className="primary" disabled={busy || !repoId}>{busy ? <LoaderCircle className="spin" /> : <Play />}Queue task</button>
+      </form> : <>
+        <section className="task-summary"><div><span>Repository</span><strong>{selected.repository}</strong></div><div><span>Branch</span><strong>{selected.working_branch}</strong></div><div><span>Runner</span><strong>{selected.runner_id || "Waiting"}</strong></div></section>
+        <section className="timeline"><h2><Radio /> Live task timeline</h2>{selected.steps.map(step => <div className={`step ${step.status}`} key={step.id}><div className="step-index">{step.step_index + 1}</div><div><strong>{step.name}</strong><p>{step.description}</p>{step.result_summary && <small>{step.result_summary}</small>}{step.error && <small className="bad">{step.error}</small>}</div><Status value={step.status} /></div>)}</section>
+        {selected.status === "waiting_for_approval" && approval && <ApprovalCard approval={approval} busy={busy} onApprove={() => runTaskAction(() => api.decideApproval(selected.id, "approve"))} onReject={() => runTaskAction(() => api.decideApproval(selected.id, "reject"))} onCreate={() => runTaskAction(() => api.createDraftPullRequest(selected.id))} />}
+        {selected.error && <div className="failure"><AlertTriangle /><div><strong>Task failed</strong><p>{selected.error}</p></div></div>}
+        {selected.pull_request_url && <a className="pr-link" href={selected.pull_request_url} target="_blank" rel="noreferrer"><GitPullRequest />Open Draft Pull Request</a>}
+        {!terminalState.has(selected.status) && <button className="danger" disabled={busy} onClick={() => runTaskAction(() => api.cancelTask(selected.id))}><CircleStop />Cancel task</button>}
+      </>}
+    </main>
 
-        <section className="side-section">
-          <div className="section-title"><SlidersHorizontal className="size-3.5" /> Inference</div>
-          <label>Model<select value={model} onChange={(event) => setModel(event.target.value)}>{models.length ? models.map((id) => <option key={id}>{id}</option>) : <option>{model}</option>}</select></label>
-          {health?.kv_slots && health.kv_slots > 1 ? <label>KV session<select value={cacheSlot} onChange={(event) => setCacheSlot(Number(event.target.value))} disabled={loading}>
-            {Array.from({ length: kvSlots }, (_, slot) => <option key={slot} value={slot}>Session {slot + 1}</option>)}
-          </select><span className="field-help">Isolated context · conversation follows the selected slot</span></label> : null}
-          <label><span className="label-line"><span>Temperature</span><code>{temperature.toFixed(1)}</code></span><input className="range" type="range" min="0" max="2" step="0.1" value={temperature} onChange={(event) => setTemperature(Number(event.target.value))} /></label>
-          <label>Max output tokens<Input type="number" min={1} max={4096} value={maxTokens} onChange={(event) => { const value = Number(event.target.value); if (Number.isFinite(value)) setMaxTokens(Math.min(4096, Math.max(1, Math.round(value)))) }} /></label>
-          <button type="button" className={cn("toggle-row", thinking && "active")} aria-pressed={thinking} onClick={() => setThinking((value) => !value)}>
-            <span><BrainCircuit className="size-4" /> Reasoning</span><i><b /></i>
-          </button>
-        </section>
+    <aside className="right-panel">
+      <header><FileCode2 /><div><strong>Workspace evidence</strong><span>Read-only</span></div></header>
+      {!selected ? <Empty text="Select a task to inspect its evidence" /> : <>
+        <EvidenceSection title="Changed files"><div className="file-list">{selected.changed_files.length ? selected.changed_files.map(file => <div key={file.path}><code>{file.path}</code><span className="plus">+{file.additions ?? "bin"}</span><span className="minus">-{file.deletions ?? "bin"}</span></div>) : <Empty text="No validated changes yet" />}</div></EvidenceSection>
+        <EvidenceSection title="Unified diff"><pre className="diff">{selected.diff_text || "Diff becomes available after validation."}</pre></EvidenceSection>
+        <EvidenceSection title="Terminal"><pre className="terminal">{terminalEvents.length ? terminalEvents.map(event => `[${new Date(event.timestamp).toLocaleTimeString()}] ${terminalText(event)}`).join("\n") : "Waiting for runner output…"}</pre></EvidenceSection>
+        <EvidenceSection title="Tests"><ResultList items={selected.validation_report.tests || []} /></EvidenceSection>
+        <EvidenceSection title="Guards"><ResultList items={selected.validation_report.guards || []} /></EvidenceSection>
+      </>}
+    </aside>
+  </div>
+}
 
-        <div className="sidebar-foot"><Cpu className="size-3.5" /><span>OpenAI-compatible transport</span></div>
-      </aside>
+function NavSection({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) { return <section className="nav-section"><h2>{icon}{title}</h2>{children}</section> }
+function EvidenceSection({ title, children }: { title: string; children: React.ReactNode }) { return <section className="evidence"><h2>{title}</h2>{children}</section> }
+function Empty({ text }: { text: string }) { return <p className="empty">{text}</p> }
+function Status({ value }: { value: string }) { return <span className={`status status-${value}`}>{value.replaceAll("_", " ")}</span> }
+function ResultList({ items }: { items: Array<{ command?: string; name?: string; status?: string; exit_code: number }> }) { return <div className="results">{items.length ? items.map((item, index) => <div key={`${item.command || item.name}-${index}`}>{item.exit_code === 0 ? <CheckCircle2 /> : <AlertTriangle />}<code>{item.command || item.name}</code><span>{item.status || `exit ${item.exit_code}`}</span></div>) : <Empty text="No results yet" />}</div> }
 
-      <main className="chat-panel">
-        <header className="topbar">
-          <div><span className="eyebrow">ACTIVE MODEL</span><strong>{model}</strong></div>
-          <div className="view-tabs">
-            <button className={view === "chat" ? "active" : ""} onClick={() => setView("chat")}><MessageSquareText className="size-3.5" /> Chat</button>
-            <button className={view === "brain" ? "active" : ""} onClick={() => setView("brain")}><BrainCircuit className="size-3.5" /> Brain</button>
-            <button className={view === "profiling" ? "active" : ""} onClick={() => setView("profiling")}><Gauge className="size-3.5" /> Profiling</button>
-          </div>
-          <div className="top-actions">
-              {loading && tokenCount > 0 ? <Badge className="badge-live"><Zap className="size-3 flash" /> {tokenCount} tokens</Badge> : null}
-              {!loading && tokPerSec != null ? <Badge className="badge-speed"><Gauge className="size-3" /> {tokPerSec.toFixed(1)} tok/s</Badge> : null}
-              {!loading && ttft != null ? <Badge><Timer className="size-3" /> TTFT {(ttft/1000).toFixed(1)}s</Badge> : null}
-              {!loading && lastRun?.usage ? <Badge><Layers className="size-3" /> {lastRun.usage.prompt_tokens}→{lastRun.usage.completion_tokens}</Badge> : null}
-              {lastRun?.queueWaitMs != null ? <Badge><Clock className="size-3" /> queue {Math.round(lastRun.queueWaitMs)}ms</Badge> : null}
-              <Badge><MonitorDot className="size-3" /> slot {cacheSlot + 1}</Badge>
-              <Button variant="ghost" size="sm" onClick={() => { updateMessages([]); setTokPerSec(null); setTtft(null); setTokenCount(0); setTotalTokens({prompt:0,completion:0}) }} disabled={!messages.length || loading}><Trash2 className="size-3.5" /> Clear</Button>
-              <Button variant="ghost" size="sm" onClick={() => setShowSettings(true)}><Settings className="size-3.5" /></Button>
-            </div>
-        </header>
-
-        {showSettings && (
-          <div className="settings-modal-backdrop">
-            <div className="settings-modal">
-              <div className="orb"><Layers /></div>
-              <h2>MEZO AI <br/>Connection Setup</h2>
-              <p>Enter your Desktop's IP address (e.g. <code>http://192.168.1.100:8081</code>) or your remote Fly.io URL.</p>
-              {health?.lan_ip && !isMobile && <p style={{color: "var(--primary)", marginTop: "4px"}}>Your Desktop LAN IP: <code>http://{health.lan_ip}:8081</code></p>}
-              <label>API Endpoint</label>
-              <Input autoFocus value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="http://..." />
-              <Button onClick={() => { setShowSettings(false); connect(); }} disabled={!baseUrl.trim()}>Connect</Button>
-            </div>
-          </div>
-        )}
-
-        {view === "brain" ? <Brain baseUrl={baseUrl} apiKey={apiKey} connected={connected} />
-          : view === "profiling" ? <Profiling baseUrl={baseUrl} apiKey={apiKey} connected={connected} /> : <>
-
-        <div className="conversation">
-          {!messages.length ? (
-            <div className="empty-state">
-              <div className="orb"><Layers /></div>
-              <span className="eyebrow">MEZO AI ENGINE</span>
-              <h2>Autonomous intelligence.<br /><em>Under your complete control.</em></h2>
-              <p>Connect to the local MEZO backend to stream responses and manage automated workflows.</p>
-              <div className="suggestions">
-                {["Explain how expert routing works", "Write a small C benchmark", "Compare RAM and VRAM caching"].map((item) => <button key={item} onClick={() => setDraft(item)}>{item}<ArrowUp className="size-3.5 rotate-45" /></button>)}
-              </div>
-            </div>
-          ) : (
-            <div className="message-list">
-              {messages.map((item) => (
-                <article key={item.id} className={cn("message", item.role)}>
-                  <div className="avatar">{item.role === "user" ? "U" : <Layers className="size-4" />}</div>
-                  <div><div className="message-meta">{item.role === "user" ? "You" : "MEZO AI"}</div><div className="message-body">{item.content || <span className="typing" aria-label="Generating"><i /><i /><i /></span>}</div></div>
-                </article>
-              ))}
-              <div ref={bottomRef} />
-            </div>
-          )}
-        </div>
-
-        <div className="composer-wrap">
-          {error && <div className="error-banner" role="alert">{error}</div>}
-          <div className="composer">
-            <Textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Message MEZO AI…" onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send() } }} />
-            <div className="composer-foot"><span><MessageSquareText className="size-3.5" /> Enter to send · Shift+Enter for newline</span>{loading ? <Button variant="destructive" size="icon" aria-label="Stop generation" onClick={() => abortRef.current?.abort()}><CircleStop className="size-4" /></Button> : <Button size="icon" aria-label="Send message" disabled={!canSend} onClick={() => void send()}><ArrowUp className="size-4" /></Button>}</div>
-          </div>
-        </div>
-        </>}
-      </main>
-    </div>
-  )
+function ApprovalCard({ approval, busy, onApprove, onReject, onCreate }: { approval: Approval; busy: boolean; onApprove: () => void; onReject: () => void; onCreate: () => void }) {
+  const approved = approval.state === "approved"
+  const request = approval.request
+  return <section className="approval-card"><div className="approval-head"><ShieldCheck /><div><span>EXTERNAL WRITE APPROVAL</span><h2>Create Draft Pull Request</h2></div></div>
+    <dl><dt>Repository</dt><dd>{request.repository}</dd><dt>Branch</dt><dd>{request.working_branch} → {request.base_branch}</dd><dt>Diff hash</dt><dd><code>{approval.diff_hash}</code></dd><dt>Commit</dt><dd><code>{request.commit_sha}</code></dd><dt>Expires</dt><dd>{new Date(approval.expires_at).toLocaleString()}</dd><dt>Diff summary</dt><dd>{request.diff_summary.files} files, +{request.diff_summary.additions} / -{request.diff_summary.deletions}</dd><dt>PR title</dt><dd>{request.pull_request_title}</dd></dl>
+    <details><summary>Changed files ({request.changed_files.length})</summary><div className="approval-evidence">{request.changed_files.map(file => <code key={file.path}>{file.path} (+{file.additions ?? "bin"} / -{file.deletions ?? "bin"})</code>)}</div></details>
+    <details><summary>Commands and tests</summary><ResultList items={[...request.commands, ...request.tests]} /></details>
+    <details><summary>Guard results</summary><ResultList items={request.guards} /></details>
+    <details><summary>Known risks ({request.known_risks.length})</summary>{request.known_risks.length ? <ul>{request.known_risks.map(risk => <li key={risk}>{risk}</li>)}</ul> : <p className="empty">No known risks reported.</p>}</details>
+    <details><summary>Pull Request body preview</summary><pre className="approval-preview">{request.pull_request_body}</pre></details>
+    {!approved ? <div className="approval-actions"><button className="danger" disabled={busy} onClick={onReject}>Reject</button><button className="primary" disabled={busy} onClick={onApprove}>Approve exact diff</button></div> : <button className="primary full" disabled={busy} onClick={onCreate}><GitPullRequest />Create Draft Pull Request now</button>}
+  </section>
 }

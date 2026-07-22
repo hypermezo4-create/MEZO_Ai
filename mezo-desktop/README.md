@@ -1,35 +1,18 @@
-# colibrì desktop
+# MEZO desktop client
 
-Tauri v2 shell for the shared React interface in `../web`.
+This Tauri v2 shell packages the same React interface as the web application. It is a remote client for the Fly-hosted `mezo-api`; it has no shell, filesystem, local model, sidecar, or unrestricted machine-control permission.
 
-This directory intentionally contains no second frontend. During development,
-Tauri starts the Vite server from `web/`; release builds package `web/dist`.
+Set `VITE_MEZO_API_URL` to the deployed HTTPS API before a release build. The content security policy permits HTTPS API connections and local Vite during development.
 
-## Development
-
-The shared web UI landed in PR #23 and is already part of `main`. From the
-repository root, install its dependencies and start the desktop shell:
-
-```sh
-cd web
+```bash
 npm ci
-cd ../desktop
-cargo install tauri-cli --version "^2.0.0" --locked
-cargo tauri dev
+npm run build:web
+npm run build:desktop
 ```
 
-The application connects to an OpenAI-compatible server configured in the UI.
-Bundling the inference engine or managing its process is intentionally deferred:
-the model is hundreds of gigabytes and must remain an external, user-selected
-resource rather than an opaque application sidecar.
+Rust-only checks:
 
-This first desktop increment only packages the existing UI in a native window.
-It does not change the web application, start the inference engine, download
-models, or add native filesystem and process permissions.
-
-## Validation
-
-```sh
-cargo fmt --manifest-path src-tauri/Cargo.toml --check
-cargo check --manifest-path src-tauri/Cargo.toml
+```bash
+cargo fmt --manifest-path mezo-desktop/src-tauri/Cargo.toml --check
+cargo check --manifest-path mezo-desktop/src-tauri/Cargo.toml
 ```

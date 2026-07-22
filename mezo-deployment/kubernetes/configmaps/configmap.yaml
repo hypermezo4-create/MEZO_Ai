@@ -1,7 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: mezo-config
-data:
-  APP_ENV: "production"
-  PORT: "5000"
