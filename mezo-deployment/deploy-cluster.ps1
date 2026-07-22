@@ -38,6 +38,12 @@ function Ensure-Secrets([string]$App, [hashtable]$Values) {
         Import-Secrets $App $needed
     }
 }
+function Ensure-MpgAttach([string]$ClusterId, [string]$App) {
+    $names = @(Invoke-FlyJson @("secrets", "list", "--app", $App, "--json") "fly secrets list" | ForEach-Object { $_.name })
+    if ('DATABASE_URL' -notin $names) {
+        Invoke-Fly @("mpg", "attach", $ClusterId, "--app", $App)
+    }
+}
 function App-Exists([string]$Name) {
     @(Invoke-FlyJson @("apps", "list", "--org", $org, "--json") "fly apps list" | Where-Object { $_.Name -eq $Name }).Count -eq 1
 }
@@ -98,8 +104,8 @@ if ($Stage -in @("1", "all")) {
         $postgres = @(Get-MpgClusters) | Where-Object { $_.name -eq "mezo-postgres" } | Select-Object -First 1
     }
     if (-not $postgres) { throw "Managed Postgres creation could not be verified" }
-    Invoke-Fly @("mpg", "attach", $postgres.id, "--app", "mezo-web")
-    Invoke-Fly @("mpg", "attach", $postgres.id, "--app", "mezo-indexer")
+    Ensure-MpgAttach $postgres.id "mezo-web"
+    Ensure-MpgAttach $postgres.id "mezo-indexer"
 
     Deploy-One "mezo-deployment/fly/mezo-queue.toml"
     Deploy-One "mezo-deployment/fly/mezo-fast.toml"
