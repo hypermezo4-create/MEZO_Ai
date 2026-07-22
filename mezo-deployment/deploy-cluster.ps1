@@ -52,6 +52,13 @@ function Cluster-MachineCount {
     foreach ($app in $apps) { if (App-Exists $app) { $count += @(& fly machines list --app $app --json | ConvertFrom-Json).Count } }
     $count
 }
+function Get-MpgClusters {
+    $output = @(& fly mpg list --org $org --json)
+    if ($LASTEXITCODE -ne 0) { throw "Could not inspect Managed Postgres clusters" }
+    $text = ($output -join "`n").Trim()
+    if (-not $text -or $text -like "No managed postgres clusters*") { return @() }
+    @($text | ConvertFrom-Json)
+}
 
 if ((& fly auth whoami).Trim() -ne "neomos.eg@gmail.com") { throw "Unexpected Fly account" }
 if ((Cluster-MachineCount) -gt 20) { throw "MEZO cluster already exceeds 20 Machines" }
@@ -78,11 +85,11 @@ if ($Stage -in @("1", "all")) {
     Import-Secrets "mezo-fast" @{ MODEL_INTERNAL_TOKEN = $modelToken }
     Import-Secrets "mezo-qwen-coder" @{ MODEL_INTERNAL_TOKEN = $modelToken }
 
-    $clusters = @(& fly mpg list --org $org --json | ConvertFrom-Json)
+    $clusters = @(Get-MpgClusters)
     $postgres = $clusters | Where-Object { $_.name -eq "mezo-postgres" } | Select-Object -First 1
     if (-not $postgres) {
         Invoke-Fly @("mpg", "create", "--name", "mezo-postgres", "--org", $org, "--region", "ams", "--plan", "Launch", "--volume-size", "100", "--pg-major-version", "17")
-        $postgres = @(& fly mpg list --org $org --json | ConvertFrom-Json) | Where-Object { $_.name -eq "mezo-postgres" } | Select-Object -First 1
+        $postgres = @(Get-MpgClusters) | Where-Object { $_.name -eq "mezo-postgres" } | Select-Object -First 1
     }
     if (-not $postgres) { throw "Managed Postgres creation could not be verified" }
     Invoke-Fly @("mpg", "attach", $postgres.id, "--app", "mezo-web")
