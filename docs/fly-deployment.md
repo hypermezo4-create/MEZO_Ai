@@ -9,21 +9,34 @@ The repository defines `mezo-api` and private `mezo-runner` applications. It doe
 - GitHub App ID, installation ID, and PEM private key.
 - Kilo/model credential.
 - Strong independent JWT, audit HMAC, bootstrap, and runner-registration secrets.
-- Region quota for the requested `performance-16x` Machine and a 500 GB volume; deployment acceptance must confirm that the allocated Machine is CPU-only with 128 GB RAM.
+- Region quota for the requested `performance-16x` Machines and two 500 GB volumes; deployment acceptance must confirm that each allocated application Machine is CPU-only with 128 GB RAM.
 
 Do not put any value from this list in `fly.toml`, an image, a shell history shared with others, or source control.
 
-## Create applications and volume
+## Create applications and volumes
 
 From the repository root:
 
 ```bash
 fly apps create mezo-api
 fly apps create mezo-runner
-fly volumes create mezo_runner_data --app mezo-runner --region ams --size 500
+
+fly volumes create mezo_api_data \
+  --app mezo-api \
+  --region ams \
+  --size 500
+
+fly volumes create mezo_runner_data \
+  --app mezo-runner \
+  --region ams \
+  --size 500
 ```
 
-Fly volumes are tied to one Machine/region and are not shared storage. When scaling later, create one volume per runner Machine and keep max task concurrency at one.
+Every API Machine requires its own 500 GB volume mounted at `/data`, and every runner Machine requires its own 500 GB volume mounted at `/workspaces`. A Fly volume is tied to one app, Machine, server, and region; it cannot be shared between Machines and volumes do not automatically replicate. Scaling either app requires another dedicated 500 GB volume for every new Machine. Keep max runner task concurrency at one per Machine.
+
+Managed Postgres remains independent from both application volumes. Do not store PostgreSQL files, secrets, private keys, Fly credentials, model credentials, JWT secrets, audit secrets, or runner-registration secrets on either application volume. The volumes are not database backups and do not provide high availability. Volume charges continue while Machines are stopped, and snapshots and network usage may add additional cost.
+
+A single Machine with one local volume has host-level availability risk and will have downtime during deployment or host failure. Keep the `rolling` deployment strategy for attached volumes; do not use canary or blue-green deployment with these Machines.
 
 ## Configure API secrets
 

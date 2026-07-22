@@ -18,6 +18,10 @@ kill_timeout = "30s"
   RUNNER_OFFLINE_SECONDS = "45"
   APPROVAL_EXPIRATION_MINUTES = "30"
 
+[mounts]
+  source = "mezo_api_data"
+  destination = "/data"
+
 [http_service]
   internal_port = 8080
   force_https = true
@@ -39,9 +43,8 @@ kill_timeout = "30s"
     path = "/healthz"
 
 [[vm]]
-  cpu_kind = "shared"
-  cpus = 2
-  memory = "2048mb"
+  size = "performance-16x"
+  memory = "128gb"
 
 [[restart]]
   policy = "on-failure"
