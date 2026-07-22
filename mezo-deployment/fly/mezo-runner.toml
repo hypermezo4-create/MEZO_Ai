@@ -21,6 +21,7 @@ kill_timeout = "60s"
 
 [[vm]]
   size = "performance-16x"
+  memory = "128gb"
 
 [[restart]]
   policy = "always"
