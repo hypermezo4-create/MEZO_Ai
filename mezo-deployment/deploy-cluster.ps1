@@ -29,6 +29,15 @@ function Import-Secrets([string]$App, [hashtable]$Values) {
 function Import-IfExists([string]$App, [hashtable]$Values) {
     if (App-Exists $App) { Import-Secrets $App $Values }
 }
+function Ensure-Secrets([string]$App, [hashtable]$Values) {
+    $present = @(Invoke-FlyJson @("secrets", "list", "--app", $App, "--json") "fly secrets list" | ForEach-Object { $_.name })
+    $missing = @($Values.Keys | Where-Object { $_ -notin $present })
+    if ($missing.Count -gt 0) {
+        $needed = @{}
+        foreach ($key in $missing) { $needed[$key] = $Values[$key] }
+        Import-Secrets $App $needed
+    }
+}
 function App-Exists([string]$Name) {
     @(Invoke-FlyJson @("apps", "list", "--org", $org, "--json") "fly apps list" | Where-Object { $_.Name -eq $Name }).Count -eq 1
 }
@@ -74,13 +83,13 @@ if ($Stage -in @("1", "all")) {
     Ensure-Volumes "mezo-runner" "mezo_runner_data" 500 1
     Ensure-Volumes "mezo-fast" "mezo_fast_models" 100 1
     Ensure-Volumes "mezo-qwen-coder" "mezo_qwen_coder_models" 250 1
-    Import-Secrets "mezo-queue" @{ VALKEY_PASSWORD = $valkeyPassword }
-    Import-Secrets "mezo-web" @{ RUNNER_INTERNAL_TOKEN = $runnerToken; ORCHESTRATOR_INTERNAL_TOKEN = $orchestratorToken; VALKEY_URL = $valkeyUrl }
-    Import-Secrets "mezo-router" @{ MODEL_INTERNAL_TOKEN = $modelToken; ORCHESTRATOR_INTERNAL_TOKEN = $orchestratorToken }
-    Import-Secrets "mezo-indexer" @{ MODEL_INTERNAL_TOKEN = $modelToken; ORCHESTRATOR_INTERNAL_TOKEN = $orchestratorToken }
-    Import-Secrets "mezo-runner" @{ RUNNER_INTERNAL_TOKEN = $runnerToken; ORCHESTRATOR_INTERNAL_TOKEN = $orchestratorToken }
-    Import-Secrets "mezo-fast" @{ MODEL_INTERNAL_TOKEN = $modelToken }
-    Import-Secrets "mezo-qwen-coder" @{ MODEL_INTERNAL_TOKEN = $modelToken }
+    Ensure-Secrets "mezo-queue" @{ VALKEY_PASSWORD = $valkeyPassword }
+    Ensure-Secrets "mezo-web" @{ RUNNER_INTERNAL_TOKEN = $runnerToken; ORCHESTRATOR_INTERNAL_TOKEN = $orchestratorToken; VALKEY_URL = $valkeyUrl }
+    Ensure-Secrets "mezo-router" @{ MODEL_INTERNAL_TOKEN = $modelToken; ORCHESTRATOR_INTERNAL_TOKEN = $orchestratorToken }
+    Ensure-Secrets "mezo-indexer" @{ MODEL_INTERNAL_TOKEN = $modelToken; ORCHESTRATOR_INTERNAL_TOKEN = $orchestratorToken }
+    Ensure-Secrets "mezo-runner" @{ RUNNER_INTERNAL_TOKEN = $runnerToken; ORCHESTRATOR_INTERNAL_TOKEN = $orchestratorToken }
+    Ensure-Secrets "mezo-fast" @{ MODEL_INTERNAL_TOKEN = $modelToken }
+    Ensure-Secrets "mezo-qwen-coder" @{ MODEL_INTERNAL_TOKEN = $modelToken }
 
     $clusters = @(Get-MpgClusters)
     $postgres = $clusters | Where-Object { $_.name -eq "mezo-postgres" } | Select-Object -First 1
