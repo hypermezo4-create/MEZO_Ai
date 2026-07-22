@@ -1,0 +1,26 @@
+app = "mezo-ai"
+primary_region = "ord"
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+[build]
+  dockerfile = "../../mezo-queue/Dockerfile"
+[processes]
+  queue = ""
+[mounts]
+  source = "mezo_queue_data"
+  destination = "/data"
+[checks.valkey]
+  type = "tcp"
+  port = 6379
+  interval = "15s"
+  timeout = "3s"
+  grace_period = "15s"
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "4gb"
+[[services]]
+  internal_port = 6379
+  protocol = "tcp"
+  processes = ["queue"]
+[[services.ports]]
+  port = 6379

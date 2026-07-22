@@ -1,0 +1,28 @@
+app = "mezo-ai"
+primary_region = "ord"
+[build]
+  dockerfile = "../../mezo-model-server/Dockerfile"
+[env]
+  MODEL_MANIFEST = "qwen-coder"
+  MODEL_CONTEXT = "32768"
+[processes]
+  coder = ""
+[mounts]
+  source = "mezo_coder_models"
+  destination = "/models"
+[checks.model]
+  type = "tcp"
+  port = 8080
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "2h"
+[[vm]]
+  size = "performance-16x"
+  memory = "128gb"
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+  processes = ["coder"]
+[[services.ports]]
+  port = 8080
+  handlers = ["http"]
