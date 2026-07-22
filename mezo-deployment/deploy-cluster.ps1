@@ -2,6 +2,7 @@ param([ValidateSet("1", "2", "3", "all")][string]$Stage = "all")
 $ErrorActionPreference = "Stop"
 $org = "personal"
 $root = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "fly-json.ps1")
 
 function Invoke-Fly([string[]]$Arguments) {
     & fly @Arguments
@@ -29,13 +30,13 @@ function Import-IfExists([string]$App, [hashtable]$Values) {
     if (App-Exists $App) { Import-Secrets $App $Values }
 }
 function App-Exists([string]$Name) {
-    @(& fly apps list --org $org --json | ConvertFrom-Json | Where-Object { $_.Name -eq $Name }).Count -eq 1
+    @(Invoke-FlyJson @("apps", "list", "--org", $org, "--json") "fly apps list" | Where-Object { $_.Name -eq $Name }).Count -eq 1
 }
 function Ensure-App([string]$Name) {
     if (-not (App-Exists $Name)) { Invoke-Fly @("apps", "create", $Name, "--org", $org) }
 }
 function Ensure-Volumes([string]$App, [string]$Name, [int]$Size, [int]$Count) {
-    $existing = @(& fly volumes list --app $App --json | ConvertFrom-Json | Where-Object { $_.name -eq $Name })
+    $existing = @(Invoke-FlyJson @("volumes", "list", "--app", $App, "--json") "fly volumes list" | Where-Object { $_.name -eq $Name })
     foreach ($volume in $existing) {
         if ($volume.size_gb -ne $Size -or $volume.region -notin @("ams", "fra", "cdg")) { throw "Conflicting volume for $App/$Name" }
     }
@@ -49,15 +50,11 @@ function Scale([string]$App, [int]$Count) { Invoke-Fly @("scale", "count", "$Cou
 function Cluster-MachineCount {
     $apps = @("mezo-web","mezo-router","mezo-queue","mezo-indexer","mezo-runner","mezo-qwen-coder","mezo-glm","mezo-deepseek","mezo-vision","mezo-fast","mezo-embedding","mezo-reranker")
     $count = 0
-    foreach ($app in $apps) { if (App-Exists $app) { $count += @(& fly machines list --app $app --json | ConvertFrom-Json).Count } }
+    foreach ($app in $apps) { if (App-Exists $app) { $count += @(Invoke-FlyJson @("machines", "list", "--app", $app, "--json") "fly machines list").Count } }
     $count
 }
 function Get-MpgClusters {
-    $output = @(& fly mpg list --org $org --json)
-    if ($LASTEXITCODE -ne 0) { throw "Could not inspect Managed Postgres clusters" }
-    $text = ($output -join "`n").Trim()
-    if (-not $text -or $text -like "No managed postgres clusters*") { return @() }
-    @($text | ConvertFrom-Json)
+    @(Invoke-FlyJson @("mpg", "list", "--org", $org, "--json") "fly mpg list")
 }
 
 if ((& fly auth whoami).Trim() -ne "neomos.eg@gmail.com") { throw "Unexpected Fly account" }
