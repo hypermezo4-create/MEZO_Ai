@@ -15,8 +15,19 @@ function New-Secret([int]$Bytes = 48) {
 }
 function Import-Secrets([string]$App, [hashtable]$Values) {
     $payload = ($Values.GetEnumerator() | ForEach-Object { $_.Key + "=" + $_.Value }) -join "`n"
-    $payload | & fly secrets import --app $App
-    if ($LASTEXITCODE -ne 0) { throw "Could not import secrets for $App" }
+    $start = New-Object System.Diagnostics.ProcessStartInfo
+    $start.FileName = "fly"
+    $start.Arguments = "secrets import --app `"$App`""
+    $start.UseShellExecute = $false
+    $start.RedirectStandardInput = $true
+    $start.StandardInputEncoding = New-Object System.Text.UTF8Encoding($false)
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $start
+    [void]$process.Start()
+    $process.StandardInput.Write($payload)
+    $process.StandardInput.Close()
+    $process.WaitForExit()
+    if ($process.ExitCode -ne 0) { throw "Could not import secrets for $App" }
 }
 function Import-IfExists([string]$App, [hashtable]$Values) {
     if (App-Exists $App) { Import-Secrets $App $Values }
