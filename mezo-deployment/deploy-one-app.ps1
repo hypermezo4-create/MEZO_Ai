@@ -56,7 +56,11 @@ if ($secrets.Count -gt 0) { Import-Secrets $secrets }
 
 $clusters = @(Invoke-FlyJson @("mpg","list","--org",$org,"--json") "fly mpg list")
 $pg = $clusters | Where-Object { $_.name -eq "mezo-postgres-ord" -and $_.region -eq $region } | Select-Object -First 1
-if (-not $pg) { Fly @("mpg","create","--name","mezo-postgres-ord","--org",$org,"--region",$region,"--plan","Launch","--volume-size","100","--pg-major-version","17"); $pg = @(Invoke-FlyJson @("mpg","list","--org",$org,"--json") "fly mpg list") | Where-Object { $_.name -eq "mezo-postgres-ord" } | Select-Object -First 1 }
+if (-not $pg) {
+    $pgOutput = & fly mpg create --name mezo-postgres-ord --org $org --region $region --plan Launch --volume-size 100 --pg-major-version 17 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Managed Postgres creation failed" }
+    $pg = @(Invoke-FlyJson @("mpg","list","--org",$org,"--json") "fly mpg list") | Where-Object { $_.name -eq "mezo-postgres-ord" } | Select-Object -First 1
+}
 if (-not $pg) { throw "Could not verify ord MPG" }
 if ('DATABASE_URL' -notin $names) { Fly @("mpg","attach",$pg.id,"--app",$app) }
 
