@@ -1,27 +1,21 @@
 app = "mezo-runner"
 primary_region = "ams"
 kill_signal = "SIGTERM"
-kill_timeout = "60s"
-
+kill_timeout = "90s"
 [build]
   dockerfile = "mezo-runner/Dockerfile"
-
 [env]
-  MEZO_API_URL = "http://mezo-api.internal:8080"
+  MEZO_API_URL = "http://mezo-web.internal:8080"
+  ROUTER_URL = "http://mezo-router.internal:8080/v1"
   WORKSPACE_ROOT = "/workspaces"
-  RUNNER_DATA_ROOT = "/workspaces/.runner"
-  FAILED_WORKSPACE_RETENTION = "delete"
-  RUNNER_HEARTBEAT_SECONDS = "10"
   RUNNER_POLL_SECONDS = "2"
-  KILO_TASK_TIMEOUT_SECONDS = "3600"
-
+  AGENT_MAX_TURNS = "40"
+  MEZO_USE_BWRAP = "1"
 [mounts]
   source = "mezo_runner_data"
   destination = "/workspaces"
-
 [[vm]]
-  size = "performance-16x"
-  memory = "128gb"
-
+  size = "performance-8x"
+  memory = "64gb"
 [[restart]]
   policy = "always"

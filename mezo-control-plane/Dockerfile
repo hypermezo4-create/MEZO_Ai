@@ -22,7 +22,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY mezo-control-plane/main.py ./main.py
 COPY mezo-control-plane/src ./src
-COPY mezo-database ./database
 COPY --from=frontend /source/mezo-frontend/dist ./frontend
 
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin mezo \

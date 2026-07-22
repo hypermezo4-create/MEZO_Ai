@@ -2,6 +2,7 @@ import os
 
 os.environ.setdefault("MEZO_TESTING", "1")
 os.environ.setdefault("MEZO_ENV", "test")
+os.environ.setdefault("MEZO_LEGACY_MODE", "1")
 os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:////tmp/mezo-api-tests.sqlite")
 
 import pytest

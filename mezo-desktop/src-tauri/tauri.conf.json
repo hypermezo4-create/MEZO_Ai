@@ -14,6 +14,7 @@
       {
         "label": "main",
         "title": "MEZO AI",
+        "url": "http://127.0.0.1:8787",
         "width": 1280,
         "height": 820,
         "minWidth": 860,
@@ -23,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data: http://asset.localhost; connect-src 'self' ipc: https: http://ipc.localhost http://127.0.0.1:* http://localhost:*"
+      "csp": "default-src 'self' http://127.0.0.1:8787; style-src 'self' 'unsafe-inline' http://127.0.0.1:8787; img-src 'self' data: http://127.0.0.1:8787; connect-src 'self' ipc: http://127.0.0.1:8787"
     }
   },
   "bundle": {

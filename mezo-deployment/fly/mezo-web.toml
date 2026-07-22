@@ -1,0 +1,27 @@
+app = "mezo-web"
+primary_region = "ams"
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+[build]
+  dockerfile = "mezo-control-plane/Dockerfile"
+[deploy]
+  release_command = "python -c \"from src.open_source_db import database; database.migrate()\""
+  strategy = "rolling"
+[env]
+  MEZO_ENV = "production"
+  ROUTER_URL = "http://mezo-router.internal:8080"
+  PORT = "8080"
+[checks.web]
+  type = "http"
+  port = 8080
+  interval = "15s"
+  timeout = "3s"
+  grace_period = "30s"
+  method = "GET"
+  path = "/healthz"
+[[vm]]
+  size = "shared-cpu-4x"
+  memory = "8gb"
+[[restart]]
+  policy = "on-failure"
+  retries = 5

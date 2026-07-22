@@ -1,0 +1,14 @@
+{
+  "model": "Qwen/Qwen3-VL-32B-Instruct",
+  "source_revision": "0cfaf48183f594c314753d30a4c4974bc75f3ccb",
+  "repo": "Qwen/Qwen3-VL-32B-Instruct-GGUF",
+  "revision": "e3e1fe0c76de7ee58ea65db420c643adfe2e457c",
+  "license": "Apache-2.0",
+  "quantization": "Q4_K_M",
+  "context": 32768,
+  "mmproj": "mmproj-Qwen3VL-32B-Instruct-Q8_0.gguf",
+  "files": [
+    {"path": "Qwen3VL-32B-Instruct-Q4_K_M.gguf", "sha256": "5cf0136e721d6294718ec71fd8c93b17ab5dd4e2714d6079e83fa46571ad94c8"},
+    {"path": "mmproj-Qwen3VL-32B-Instruct-Q8_0.gguf", "sha256": "c01734a97adc350c1eebb957ed433afee4e376ebd0949163f659c76d8dcf20ca"}
+  ]
+}

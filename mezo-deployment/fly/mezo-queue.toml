@@ -1,0 +1,20 @@
+app = "mezo-queue"
+primary_region = "ams"
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+[build]
+  dockerfile = "mezo-queue/Dockerfile"
+[mounts]
+  source = "mezo_queue_data"
+  destination = "/data"
+[checks.valkey]
+  type = "tcp"
+  port = 6379
+  interval = "15s"
+  timeout = "3s"
+  grace_period = "15s"
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "8gb"
+[[restart]]
+  policy = "always"

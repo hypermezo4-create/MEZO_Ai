@@ -1,0 +1,22 @@
+app = "mezo-embedding"
+primary_region = "ams"
+kill_signal = "SIGTERM"
+kill_timeout = "120s"
+[build]
+  dockerfile = "mezo-model-server/Dockerfile"
+[env]
+  MODEL_MANIFEST = "embedding"
+[mounts]
+  source = "mezo_embedding_models"
+  destination = "/models"
+[checks.model]
+  type = "tcp"
+  port = 8080
+  interval = "20s"
+  timeout = "5s"
+  grace_period = "60s"
+[[vm]]
+  size = "performance-8x"
+  memory = "64gb"
+[[restart]]
+  policy = "always"

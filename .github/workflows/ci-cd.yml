@@ -2,7 +2,7 @@ name: MEZO Phase 1 CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, feat/mezo-agent-mvp]
   push:
     branches: [main, feat/mezo-agent-mvp]
 
@@ -102,6 +102,26 @@ jobs:
       - run: cargo fmt --manifest-path mezo-desktop/src-tauri/Cargo.toml --check
       - run: cargo check --manifest-path mezo-desktop/src-tauri/Cargo.toml
 
+  windows-artifacts:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - name: Build Windows x64 EXE and installer
+        run: npm run build --workspace=mezo-desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mezo-windows-x64
+          path: |
+            mezo-desktop/src-tauri/target/release/*.exe
+            mezo-desktop/src-tauri/target/release/bundle/**/*.exe
+            mezo-desktop/src-tauri/target/release/bundle/**/*.msi
+
   containers:
     runs-on: ubuntu-latest
     needs: [api, runner, frontend, desktop]
@@ -111,3 +131,11 @@ jobs:
         run: docker build -f mezo-control-plane/Dockerfile -t mezo-api:ci .
       - name: Build runner image
         run: docker build -f mezo-runner/Dockerfile -t mezo-runner:ci .
+      - name: Build router image
+        run: docker build -f mezo-router/Dockerfile -t mezo-router:ci .
+      - name: Build indexer image
+        run: docker build -f mezo-indexer/Dockerfile -t mezo-indexer:ci .
+      - name: Build queue image
+        run: docker build -f mezo-queue/Dockerfile -t mezo-queue:ci .
+      - name: Build CPU model image
+        run: docker build -f mezo-model-server/Dockerfile -t mezo-model:ci .

@@ -1,0 +1,14 @@
+{
+  "model": "Qwen/Qwen3-Reranker-8B",
+  "source_revision": "77d193c791ed757ca307ee72715aa132723da912",
+  "repo": "camelliah/Qwen3-Reranker-8B-Q4_K_M-GGUF",
+  "revision": "112ad66c3d5cc65b4a206a721f6da2092623475e",
+  "license": "Apache-2.0",
+  "quantization": "Q4_K_M",
+  "context": 8192,
+  "reranking": true,
+  "jinja": false,
+  "files": [
+    {"path": "qwen3-reranker-8b-q4_k_m.gguf", "sha256": "23ae95c038ef96f4f8b819f2d4d70980279b77880a9049a4bd456d8554621ebb"}
+  ]
+}

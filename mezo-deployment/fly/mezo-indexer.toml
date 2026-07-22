@@ -1,0 +1,22 @@
+app = "mezo-indexer"
+primary_region = "ams"
+kill_signal = "SIGTERM"
+kill_timeout = "60s"
+[build]
+  dockerfile = "mezo-indexer/Dockerfile"
+[mounts]
+  source = "mezo_index_data"
+  destination = "/index"
+[checks.indexer]
+  type = "http"
+  port = 8080
+  interval = "20s"
+  timeout = "5s"
+  grace_period = "60s"
+  method = "GET"
+  path = "/healthz"
+[[vm]]
+  size = "performance-4x"
+  memory = "32gb"
+[[restart]]
+  policy = "always"
