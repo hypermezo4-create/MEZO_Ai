@@ -132,7 +132,7 @@ class CommandRunner:
         use_bwrap = os.getenv("MEZO_USE_BWRAP", "1").lower() not in {"0", "false", "no"}
         if use_bwrap and shutil.which("bwrap") and os.name == "posix":
             isolated_argv = [
-                "bwrap", "--die-with-parent", "--new-session", "--unshare-pid", "--unshare-ipc", "--unshare-uts",
+                "bwrap", "--die-with-parent", "--new-session", "--unshare-user", "--unshare-pid", "--unshare-ipc", "--unshare-uts",
                 "--ro-bind", "/", "/", "--bind", str(self.workspace.task_root), str(self.workspace.task_root),
                 "--tmpfs", "/tmp", "--proc", "/proc", "--dev", "/dev", "--chdir", str(resolved_cwd),
                 "--uid", str(self.workspace.task_uid), "--gid", str(self.workspace.task_gid), "--", *execution_argv,
