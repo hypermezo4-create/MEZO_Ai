@@ -106,7 +106,11 @@ async def test_background_descendant_is_terminated_when_parent_exits(workspace):
         await runner.run(["python3", "-c", command], cwd=workspace.repo, timeout=1)
     child_pid = int(next(event["message"] for event in events if event["event_type"] == "stdout").strip())
     process_state = f"/proc/{child_pid}/stat"
-    assert not os.path.exists(process_state) or Path(process_state).read_text().split()[2] == "Z"
+    try:
+        state = Path(process_state).read_text().split()[2]
+    except FileNotFoundError:
+        state = "terminated"
+    assert state in {"Z", "terminated"}
 
 
 @pytest.mark.asyncio
