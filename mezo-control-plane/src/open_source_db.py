@@ -19,7 +19,7 @@ class Database:
     """Postgres store with a SQLite-only local-test fallback."""
 
     def __init__(self) -> None:
-        self.url = os.getenv("DATABASE_URL", "").strip()
+        self.url = os.getenv("WEB_DATABASE_URL", os.getenv("DATABASE_URL", "")).strip()
         self.sqlite_path = Path(os.getenv("MEZO_SQLITE_PATH", "/tmp/mezo-cluster-test.db"))
         self.postgres = self.url.startswith(("postgresql://", "postgres://"))
         self._write_lock = threading.Lock()

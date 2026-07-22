@@ -14,12 +14,13 @@ from fastapi import FastAPI, Header, HTTPException, Request
 app = FastAPI(title="MEZO Router", docs_url=None, redoc_url=None)
 ORCHESTRATOR_TOKEN = os.getenv("ORCHESTRATOR_INTERNAL_TOKEN", "")
 MODEL_TOKEN = os.getenv("MODEL_INTERNAL_TOKEN", "")
+APP_NAME = os.getenv("MEZO_APP_NAME", "mezo-ai")
 ENDPOINTS = {
-    "fast": "http://mezo-fast.internal:8080/v1",
-    "coding": "http://mezo-qwen-coder.internal:8080/v1",
-    "deep": "http://mezo-glm.internal:8080/v1",
-    "debug": "http://mezo-deepseek.internal:8080/v1",
-    "vision": "http://mezo-vision.internal:8080/v1",
+    "fast": os.getenv("FAST_MODEL_URL", f"http://fast.process.{APP_NAME}.internal:8080/v1"),
+    "coding": os.getenv("CODER_MODEL_URL", f"http://coder.process.{APP_NAME}.internal:8080/v1"),
+    "deep": os.getenv("GLM_MODEL_URL", f"http://glm.process.{APP_NAME}.internal:8080/v1"),
+    "debug": os.getenv("DEEPSEEK_MODEL_URL", f"http://deepseek.process.{APP_NAME}.internal:8080/v1"),
+    "vision": os.getenv("VISION_MODEL_URL", f"http://vision.process.{APP_NAME}.internal:8080/v1"),
 }
 failures: dict[str, int] = defaultdict(int)
 open_until: dict[str, float] = defaultdict(float)
@@ -125,5 +126,11 @@ async def review(request: Request, authorization: str | None = Header(default=No
         "Review this proposed patch for correctness, security, missing tests, and unsafe assumptions. "
         "Return actionable findings only.\n\n" + str(body.get("diff", ""))[:400_000]
     )
-    response = await call_model("debug", {"messages": [{"role": "user", "content": prompt}], "temperature": 0.1})
-    return {"reviewer": "deepseek", "content": response["choices"][0]["message"].get("content", "")}
+    payload = {"messages": [{"role": "user", "content": prompt}], "temperature": 0.1}
+    try:
+        response = await call_model("debug", payload)
+        reviewer = "deepseek"
+    except HTTPException:
+        response = await call_model("coding", payload)
+        reviewer = "qwen-stage1-fallback"
+    return {"reviewer": reviewer, "content": response["choices"][0]["message"].get("content", "")}

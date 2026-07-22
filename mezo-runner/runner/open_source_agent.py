@@ -80,7 +80,8 @@ class AgentLoop:
         self.workspace = workspace
         self.events = events
         self.commands = CommandRunner(workspace, self._command_event)
-        self.model_url = os.getenv("ROUTER_URL", "http://mezo-router.internal:8080/v1").rstrip("/")
+        app_name = os.getenv("MEZO_APP_NAME", "mezo-ai")
+        self.model_url = os.getenv("ROUTER_URL", f"http://router.process.{app_name}.internal:8080/v1").rstrip("/")
         self.model_name = "coding"
         self.model_token = os.environ["ORCHESTRATOR_INTERNAL_TOKEN"]
         self.max_turns = int(os.getenv("AGENT_MAX_TURNS", "40"))

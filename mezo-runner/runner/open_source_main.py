@@ -16,7 +16,9 @@ from runner.workspace import Workspace
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("mezo.runner")
-API_URL = os.getenv("MEZO_API_URL", "http://mezo-api.internal:8080").rstrip("/")
+APP_NAME = os.getenv("MEZO_APP_NAME", "mezo-ai")
+API_URL = os.getenv("MEZO_API_URL", f"http://web.process.{APP_NAME}.internal:8080").rstrip("/")
+ROUTER_URL = os.getenv("ROUTER_URL", f"http://router.process.{APP_NAME}.internal:8080/v1").rstrip("/")
 TOKEN = os.environ.get("RUNNER_INTERNAL_TOKEN", "")
 ORCHESTRATOR_TOKEN = os.environ.get("ORCHESTRATOR_INTERNAL_TOKEN", "")
 ROOT = os.getenv("WORKSPACE_ROOT", "/workspaces")
@@ -93,14 +95,16 @@ async def execute(task: dict[str, Any]) -> None:
         if draft.stdout:
             async with httpx.AsyncClient(timeout=900) as client:
                 review_response = await client.post(
-                    "http://mezo-router.internal:8080/v1/review",
+                    f"{ROUTER_URL.removesuffix('/v1')}/v1/review",
                     headers={"Authorization": f"Bearer {ORCHESTRATOR_TOKEN}"},
                     json={"diff": draft.stdout},
                 )
             review_response.raise_for_status()
-            review = review_response.json()["content"]
-            reviewer_chain.append("deepseek")
-            await event("patch_review", {"reviewer": "deepseek", "message": review[:16000]})
+            review_payload = review_response.json()
+            review = review_payload["content"]
+            reviewer = review_payload.get("reviewer", "unknown")
+            reviewer_chain.append(reviewer)
+            await event("patch_review", {"reviewer": reviewer, "message": review[:16000]})
             assistant = await agent.run(
                 "Apply any valid findings from this independent review, reject incorrect findings, then rerun relevant tests.\n\n" + review,
                 task["repository_url"], task["default_branch"],

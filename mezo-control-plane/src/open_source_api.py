@@ -21,8 +21,9 @@ from src.open_source_db import database, now
 router = APIRouter(prefix="/api")
 RUNNER_TOKEN = os.getenv("RUNNER_INTERNAL_TOKEN", "")
 ORCHESTRATOR_TOKEN = os.getenv("ORCHESTRATOR_INTERNAL_TOKEN", "")
-ROUTER_URL = os.getenv("ROUTER_URL", "http://mezo-router.internal:8080").rstrip("/")
-VALKEY_URL = os.getenv("VALKEY_URL", "redis://mezo-queue.internal:6379/0")
+APP_NAME = os.getenv("MEZO_APP_NAME", "mezo-ai")
+ROUTER_URL = os.getenv("ROUTER_URL", f"http://router.process.{APP_NAME}.internal:8080").rstrip("/")
+VALKEY_URL = os.getenv("VALKEY_URL", f"redis://queue.process.{APP_NAME}.internal:6379/0")
 
 EXPECTED_MACHINE_SLOTS = (
     [("web-1", "web", "mezo-web", "shared-cpu-4x", 8192)]

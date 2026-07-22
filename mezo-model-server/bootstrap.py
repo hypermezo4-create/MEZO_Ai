@@ -57,10 +57,13 @@ def main() -> None:
     server = next(Path("/opt/llama").rglob("llama-server"), None)
     if server is None:
         raise RuntimeError("Pinned llama-server binary is missing")
+    context = int(os.getenv("MODEL_CONTEXT", str(manifest.get("context", 32768))))
+    if context < 1024 or context > int(manifest.get("context", context)):
+        raise RuntimeError("MODEL_CONTEXT must be between 1024 and the manifest maximum")
     args = [
         str(server), "--model", str(files[0]), "--host", "0.0.0.0", "--port", "8080",
         "--threads", str(os.cpu_count() or 8), "--threads-batch", str(os.cpu_count() or 8),
-        "--ctx-size", str(manifest.get("context", 32768)), "--parallel", "1", "--metrics",
+        "--ctx-size", str(context), "--parallel", "1", "--metrics",
     ]
     if manifest.get("jinja", True):
         args.append("--jinja")

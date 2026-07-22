@@ -1,0 +1,20 @@
+{
+  "app": "mezo-ai",
+  "organization": "personal",
+  "region": "ord",
+  "max_machines": 20,
+  "roles": [
+    {"role":"web","stage":1,"stage1_count":1,"final_count":1,"dockerfile":"mezo-control-plane/Dockerfile","size":"shared-cpu-4x","memory_mb":8192,"port":8080,"endpoint":"web.process.mezo-ai.internal:8080"},
+    {"role":"router","stage":1,"stage1_count":1,"final_count":1,"dockerfile":"mezo-router/Dockerfile","size":"performance-4x","memory_mb":32768,"port":8080,"endpoint":"router.process.mezo-ai.internal:8080"},
+    {"role":"queue","stage":1,"stage1_count":1,"final_count":1,"dockerfile":"mezo-queue/Dockerfile","size":"shared-cpu-2x","memory_mb":4096,"port":6379,"endpoint":"queue.process.mezo-ai.internal:6379","volume":{"name":"mezo_queue_data","size_gb":20,"mount":"/data"}},
+    {"role":"indexer","stage":1,"stage1_count":1,"final_count":1,"dockerfile":"mezo-indexer/Dockerfile","size":"performance-4x","memory_mb":32768,"port":8080,"endpoint":"indexer.process.mezo-ai.internal:8080","volume":{"name":"mezo_index_data","size_gb":100,"mount":"/index"}},
+    {"role":"runner","stage":1,"stage1_count":1,"final_count":4,"dockerfile":"mezo-runner/Dockerfile","size":"performance-8x","memory_mb":65536,"endpoint":null,"volume":{"name":"mezo_runner_data","size_gb":500,"mount":"/workspaces"}},
+    {"role":"fast","stage":1,"stage1_count":1,"final_count":2,"dockerfile":"mezo-model-server/Dockerfile","size":"performance-8x","memory_mb":65536,"port":8080,"endpoint":"fast.process.mezo-ai.internal:8080","manifest":"fast","context":32768,"volume":{"name":"mezo_fast_models","size_gb":100,"mount":"/models"}},
+    {"role":"coder","stage":1,"stage1_count":1,"final_count":2,"dockerfile":"mezo-model-server/Dockerfile","size":"performance-16x","memory_mb":131072,"port":8080,"endpoint":"coder.process.mezo-ai.internal:8080","manifest":"qwen-coder","context":32768,"capacity_fallbacks":[{"size":"performance-16x","memory_mb":98304,"context":24576},{"size":"performance-8x","memory_mb":65536,"context":16384}],"volume":{"name":"mezo_coder_models","size_gb":250,"mount":"/models"}},
+    {"role":"deepseek","stage":2,"stage1_count":0,"final_count":2,"dockerfile":"mezo-model-server/Dockerfile","size":"performance-16x","memory_mb":131072,"port":8080,"endpoint":"deepseek.process.mezo-ai.internal:8080","manifest":"deepseek","volume":{"name":"mezo_deepseek_models","size_gb":200,"mount":"/models"}},
+    {"role":"embedding","stage":2,"stage1_count":0,"final_count":1,"dockerfile":"mezo-model-server/Dockerfile","size":"performance-4x","memory_mb":32768,"port":8080,"endpoint":"embedding.process.mezo-ai.internal:8080","manifest":"embedding","volume":{"name":"mezo_embedding_models","size_gb":100,"mount":"/models"}},
+    {"role":"reranker","stage":2,"stage1_count":0,"final_count":1,"dockerfile":"mezo-model-server/Dockerfile","size":"performance-4x","memory_mb":32768,"port":8080,"endpoint":"reranker.process.mezo-ai.internal:8080","manifest":"reranker","volume":{"name":"mezo_reranker_models","size_gb":100,"mount":"/models"}},
+    {"role":"glm","stage":3,"stage1_count":0,"final_count":2,"dockerfile":"mezo-model-server/Dockerfile","size":"performance-16x","memory_mb":131072,"port":8080,"endpoint":"glm.process.mezo-ai.internal:8080","manifest":"glm","volume":{"name":"mezo_glm_models","size_gb":300,"mount":"/models"}},
+    {"role":"vision","stage":3,"stage1_count":0,"final_count":2,"dockerfile":"mezo-model-server/Dockerfile","size":"performance-16x","memory_mb":131072,"port":8080,"endpoint":"vision.process.mezo-ai.internal:8080","manifest":"vision","volume":{"name":"mezo_vision_models","size_gb":250,"mount":"/models"}}
+  ]
+}
