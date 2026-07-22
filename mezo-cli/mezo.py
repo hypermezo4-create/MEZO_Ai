@@ -17,6 +17,35 @@ from pathlib import Path
 URL = "http://127.0.0.1:8787"
 STATE = Path(os.getenv("LOCALAPPDATA", str(Path.home() / ".local"))) / "MEZO AI"
 PID_FILE = STATE / "tunnel.pid"
+FLY_APP = "mezo-ai"
+
+
+def control_machine_hostname() -> str:
+    result = subprocess.run(
+        ["fly", "machines", "list", "--app", FLY_APP, "--json"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("Unable to inventory mezo-ai Machines; check `fly auth whoami`")
+    try:
+        machines = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("flyctl returned an invalid Machine inventory") from exc
+    for machine in machines:
+        metadata = machine.get("config", {}).get("metadata", {})
+        role = metadata.get("role") or metadata.get("fly_process_group")
+        if role != "control" or machine.get("state") != "started":
+            continue
+        machine_id = machine.get("id")
+        status = subprocess.run(
+            ["fly", "machine", "status", machine_id, "--app", FLY_APP, "--json"],
+            capture_output=True,
+            text=True,
+        )
+        if status.returncode == 0 and '"critical"' not in status.stdout.lower():
+            return f"{machine_id}.vm.{FLY_APP}.internal"
+    raise RuntimeError("No healthy control Machine exists in mezo-ai; inspect `fly machines list --app mezo-ai`")
 
 
 def reachable() -> bool:
@@ -49,8 +78,9 @@ def supervise() -> None:
     PID_FILE.write_text(str(os.getpid()), encoding="ascii")
     try:
         while True:
+            remote_host = control_machine_hostname()
             process = subprocess.Popen(
-                ["fly", "proxy", "8787:8080", "--app", "mezo-web", "--bind-addr", "127.0.0.1"],
+                ["fly", "proxy", "8787:8080", remote_host, "--app", FLY_APP, "--bind-addr", "127.0.0.1"],
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )

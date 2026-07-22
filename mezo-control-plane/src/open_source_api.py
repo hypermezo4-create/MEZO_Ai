@@ -25,20 +25,13 @@ APP_NAME = os.getenv("MEZO_APP_NAME", "mezo-ai")
 ROUTER_URL = os.getenv("ROUTER_URL", f"http://router.process.{APP_NAME}.internal:8080").rstrip("/")
 VALKEY_URL = os.getenv("VALKEY_URL", f"redis://queue.process.{APP_NAME}.internal:6379/0")
 
-EXPECTED_MACHINE_SLOTS = (
-    [("web-1", "web", "mezo-web", "shared-cpu-4x", 8192)]
-    + [("router-1", "router", "mezo-router", "performance-4x", 32768)]
-    + [("queue-1", "queue", "mezo-queue", "shared-cpu-2x", 8192)]
-    + [("indexer-1", "indexer", "mezo-indexer", "performance-4x", 32768)]
-    + [(f"runner-{number}", "runner", "mezo-runner", "performance-8x", 65536) for number in range(1, 5)]
-    + [(f"qwen-coder-{number}", "qwen-coder", "mezo-qwen-coder", "performance-16x", 131072) for number in range(1, 3)]
-    + [(f"glm-{number}", "glm", "mezo-glm", "performance-16x", 131072) for number in range(1, 3)]
-    + [(f"deepseek-{number}", "deepseek", "mezo-deepseek", "performance-16x", 131072) for number in range(1, 3)]
-    + [(f"vision-{number}", "vision", "mezo-vision", "performance-16x", 131072) for number in range(1, 3)]
-    + [(f"fast-{number}", "fast", "mezo-fast", "performance-8x", 65536) for number in range(1, 3)]
-    + [("embedding-1", "embedding", "mezo-embedding", "performance-8x", 65536)]
-    + [("reranker-1", "reranker", "mezo-reranker", "performance-8x", 65536)]
-)
+EXPECTED_MACHINE_SLOTS = [
+    (role, role, "mezo-ai", "performance-16x", 131072)
+    for role in (
+        "control", "runner-1", "runner-2", "coder-1", "coder-2",
+        "reasoning", "reviewer", "vision", "utility",
+    )
+]
 
 
 def machine_slots(registrations: list[dict[str, Any]], router_state: dict[str, Any]) -> list[dict[str, Any]]:
@@ -63,7 +56,7 @@ def machine_slots(registrations: list[dict[str, Any]], router_state: dict[str, A
             "machine_id": None,
             "role": role,
             "app": app,
-            "region": "ams",
+            "region": "ord",
             "size": size,
             "memory_mb": memory_mb,
             "status": "online" if health.get("healthy") else "unavailable",

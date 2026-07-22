@@ -19,8 +19,8 @@ TOKEN = os.getenv("ORCHESTRATOR_INTERNAL_TOKEN", "")
 MODEL_TOKEN = os.getenv("MODEL_INTERNAL_TOKEN", "")
 DATABASE_URL = os.getenv("INDEXER_DATABASE_URL", os.getenv("DATABASE_URL", ""))
 APP_NAME = os.getenv("MEZO_APP_NAME", "mezo-ai")
-EMBED_URL = os.getenv("EMBEDDING_MODEL_URL", f"http://embedding.process.{APP_NAME}.internal:8080/v1")
-RERANK_URL = os.getenv("RERANK_MODEL_URL", f"http://reranker.process.{APP_NAME}.internal:8080/v1")
+EMBED_URL = os.getenv("EMBEDDING_URL", os.getenv("EMBEDDING_MODEL_URL", ""))
+RERANK_URL = os.getenv("RERANKER_URL", os.getenv("RERANK_MODEL_URL", ""))
 
 
 class FileInput(BaseModel):

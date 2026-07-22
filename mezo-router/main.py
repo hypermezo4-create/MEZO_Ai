@@ -15,15 +15,22 @@ app = FastAPI(title="MEZO Router", docs_url=None, redoc_url=None)
 ORCHESTRATOR_TOKEN = os.getenv("ORCHESTRATOR_INTERNAL_TOKEN", "")
 MODEL_TOKEN = os.getenv("MODEL_INTERNAL_TOKEN", "")
 APP_NAME = os.getenv("MEZO_APP_NAME", "mezo-ai")
+
+
+def endpoint_list(name: str) -> list[str]:
+    return [value.strip().rstrip("/") for value in os.getenv(name, "").split(",") if value.strip()]
+
+
 ENDPOINTS = {
-    "fast": os.getenv("FAST_MODEL_URL", f"http://fast.process.{APP_NAME}.internal:8080/v1"),
-    "coding": os.getenv("CODER_MODEL_URL", f"http://coder.process.{APP_NAME}.internal:8080/v1"),
-    "deep": os.getenv("GLM_MODEL_URL", f"http://glm.process.{APP_NAME}.internal:8080/v1"),
-    "debug": os.getenv("DEEPSEEK_MODEL_URL", f"http://deepseek.process.{APP_NAME}.internal:8080/v1"),
-    "vision": os.getenv("VISION_MODEL_URL", f"http://vision.process.{APP_NAME}.internal:8080/v1"),
+    "fast": endpoint_list("FAST_URL"),
+    "coding": endpoint_list("CODER_ENDPOINTS"),
+    "deep": endpoint_list("REASONING_URL"),
+    "debug": endpoint_list("REVIEWER_URL"),
+    "vision": endpoint_list("VISION_URL"),
 }
 failures: dict[str, int] = defaultdict(int)
 open_until: dict[str, float] = defaultdict(float)
+positions: dict[str, int] = defaultdict(int)
 
 
 def authorize(value: str | None) -> None:
@@ -51,21 +58,30 @@ async def call_model(kind: str, body: dict[str, Any], timeout: float = 900) -> d
         raise HTTPException(503, f"{kind} circuit is open")
     payload = dict(body)
     payload["model"] = "local"
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10)) as client:
-            response = await client.post(
-                f"{ENDPOINTS[kind]}/chat/completions",
-                headers={"Authorization": f"Bearer {MODEL_TOKEN}"},
-                json=payload,
-            )
-        response.raise_for_status()
-        failures[kind] = 0
-        return response.json()
-    except (httpx.HTTPError, KeyError) as exc:
-        failures[kind] += 1
-        if failures[kind] >= 3:
-            open_until[kind] = time.monotonic() + 30
-        raise HTTPException(503, f"{kind} model unavailable: {type(exc).__name__}") from exc
+    endpoints = ENDPOINTS.get(kind, [])
+    if not endpoints:
+        raise HTTPException(503, f"{kind} model is not configured")
+    start = positions[kind] % len(endpoints)
+    positions[kind] += 1
+    last_error: Exception | None = None
+    for offset in range(len(endpoints)):
+        endpoint = endpoints[(start + offset) % len(endpoints)]
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10)) as client:
+                response = await client.post(
+                    f"{endpoint}/chat/completions",
+                    headers={"Authorization": f"Bearer {MODEL_TOKEN}"},
+                    json=payload,
+                )
+            response.raise_for_status()
+            failures[kind] = 0
+            return response.json()
+        except httpx.HTTPError as exc:
+            last_error = exc
+    failures[kind] += 1
+    if failures[kind] >= 3:
+        open_until[kind] = time.monotonic() + 30
+    raise HTTPException(503, f"{kind} model unavailable: {type(last_error).__name__}") from last_error
 
 
 @app.get("/healthz")
@@ -76,15 +92,18 @@ def health() -> dict[str, str]:
 @app.get("/cluster")
 async def cluster(authorization: str | None = Header(default=None)) -> dict[str, Any]:
     authorize(authorization)
-    async def probe(kind: str, url: str) -> tuple[str, dict[str, Any]]:
+    async def probe(kind: str, urls: list[str]) -> tuple[str, dict[str, Any]]:
         started = time.monotonic()
-        try:
-            async with httpx.AsyncClient(timeout=4) as client:
-                response = await client.get(f"{url}/models", headers={"Authorization": f"Bearer {MODEL_TOKEN}"})
-            return kind, {"healthy": response.status_code == 200, "latency_ms": round((time.monotonic() - started) * 1000), "circuit_open": open_until[kind] > time.monotonic()}
-        except httpx.HTTPError as exc:
-            return kind, {"healthy": False, "error": type(exc).__name__, "circuit_open": open_until[kind] > time.monotonic()}
-    values = await asyncio.gather(*(probe(kind, url) for kind, url in ENDPOINTS.items()))
+        replicas = []
+        for url in urls:
+            try:
+                async with httpx.AsyncClient(timeout=4) as client:
+                    response = await client.get(f"{url}/models", headers={"Authorization": f"Bearer {MODEL_TOKEN}"})
+                replicas.append({"endpoint": url, "healthy": response.status_code == 200})
+            except httpx.HTTPError as exc:
+                replicas.append({"endpoint": url, "healthy": False, "error": type(exc).__name__})
+        return kind, {"healthy": any(item["healthy"] for item in replicas), "replicas": replicas, "latency_ms": round((time.monotonic() - started) * 1000), "circuit_open": open_until[kind] > time.monotonic()}
+    values = await asyncio.gather(*(probe(kind, urls) for kind, urls in ENDPOINTS.items()))
     return {"models": {kind: value for kind, value in values}}
 
 

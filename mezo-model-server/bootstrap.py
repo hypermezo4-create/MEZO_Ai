@@ -1,16 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import os
 import subprocess
 import sys
 import urllib.parse
 from pathlib import Path
-
-
-ROOT = Path("/models")
-ROOT.mkdir(parents=True, exist_ok=True)
 
 
 def digest(path: Path) -> str:
@@ -21,8 +18,8 @@ def digest(path: Path) -> str:
     return value.hexdigest()
 
 
-def download(repo: str, revision: str, item: dict[str, str]) -> Path:
-    target = ROOT / Path(item["path"]).name
+def download(root: Path, repo: str, revision: str, item: dict[str, str]) -> Path:
+    target = root / Path(item["path"]).name
     if target.exists() and digest(target) == item["sha256"]:
         return target
     partial = target.with_suffix(target.suffix + ".partial")
@@ -48,8 +45,10 @@ def main() -> None:
     manifest_name = os.getenv("MODEL_MANIFEST", "")
     manifest_path = Path("/opt/mezo/manifests") / f"{manifest_name}.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    files = [download(manifest["repo"], manifest["revision"], item) for item in manifest["files"]]
-    (ROOT / "verified-manifest.json").write_text(
+    root = Path(os.getenv("MODEL_ROOT", "/models"))
+    root.mkdir(parents=True, exist_ok=True)
+    files = [download(root, manifest["repo"], manifest["revision"], item) for item in manifest["files"]]
+    (root / "verified-manifest.json").write_text(
         json.dumps({"model": manifest["model"], "revision": manifest["revision"],
                     "quantization": manifest["quantization"], "files": manifest["files"]}, indent=2),
         encoding="utf-8",
@@ -60,8 +59,13 @@ def main() -> None:
     context = int(os.getenv("MODEL_CONTEXT", str(manifest.get("context", 32768))))
     if context < 1024 or context > int(manifest.get("context", context)):
         raise RuntimeError("MODEL_CONTEXT must be between 1024 and the manifest maximum")
+    bind_host = os.getenv("MEZO_BIND_HOST", "0.0.0.0")
+    ipaddress.ip_address(bind_host)
+    port = int(os.getenv("MODEL_PORT", "8080"))
+    if not 1024 <= port <= 65535:
+        raise RuntimeError("MODEL_PORT must be between 1024 and 65535")
     args = [
-        str(server), "--model", str(files[0]), "--host", "0.0.0.0", "--port", "8080",
+        str(server), "--model", str(files[0]), "--host", bind_host, "--port", str(port),
         "--threads", str(os.cpu_count() or 8), "--threads-batch", str(os.cpu_count() or 8),
         "--ctx-size", str(context), "--parallel", "1", "--metrics",
     ]

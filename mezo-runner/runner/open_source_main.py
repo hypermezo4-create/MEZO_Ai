@@ -17,8 +17,8 @@ from runner.workspace import Workspace
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("mezo.runner")
 APP_NAME = os.getenv("MEZO_APP_NAME", "mezo-ai")
-API_URL = os.getenv("MEZO_API_URL", f"http://web.process.{APP_NAME}.internal:8080").rstrip("/")
-ROUTER_URL = os.getenv("ROUTER_URL", f"http://router.process.{APP_NAME}.internal:8080/v1").rstrip("/")
+API_URL = os.getenv("CONTROL_URL", os.getenv("MEZO_API_URL", "")).rstrip("/")
+ROUTER_URL = os.getenv("ROUTER_URL", "").rstrip("/")
 TOKEN = os.environ.get("RUNNER_INTERNAL_TOKEN", "")
 ORCHESTRATOR_TOKEN = os.environ.get("ORCHESTRATOR_INTERNAL_TOKEN", "")
 ROOT = os.getenv("WORKSPACE_ROOT", "/workspaces")
@@ -47,7 +47,7 @@ async def heartbeat(status: str, task_id: str | None = None) -> None:
     await api.request("POST", "/api/runner/heartbeat", {
         "machine_id": RUNNER_ID, "status": status, "current_task_id": task_id,
         "disk_total_bytes": usage.total, "disk_free_bytes": usage.free, "version": "2.0.0-cluster",
-        "region": os.getenv("FLY_REGION", "local"), "size": "performance-8x", "memory_mb": 65536,
+        "region": os.getenv("FLY_REGION", "local"), "size": "performance-16x", "memory_mb": 131072,
     })
 
 
