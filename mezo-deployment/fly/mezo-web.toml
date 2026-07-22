@@ -3,7 +3,7 @@ primary_region = "ams"
 kill_signal = "SIGTERM"
 kill_timeout = "30s"
 [build]
-  dockerfile = "mezo-control-plane/Dockerfile"
+  dockerfile = "../../mezo-control-plane/Dockerfile"
 [deploy]
   release_command = "python -c \"from src.open_source_db import database; database.migrate()\""
   strategy = "rolling"

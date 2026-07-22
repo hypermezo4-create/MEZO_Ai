@@ -3,7 +3,7 @@ primary_region = "ams"
 kill_signal = "SIGTERM"
 kill_timeout = "120s"
 [build]
-  dockerfile = "mezo-model-server/Dockerfile"
+  dockerfile = "../../mezo-model-server/Dockerfile"
 [env]
   MODEL_MANIFEST = "embedding"
 [mounts]

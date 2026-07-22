@@ -3,7 +3,7 @@ primary_region = "ams"
 kill_signal = "SIGTERM"
 kill_timeout = "60s"
 [build]
-  dockerfile = "mezo-router/Dockerfile"
+  dockerfile = "../../mezo-router/Dockerfile"
 [checks.router]
   type = "http"
   port = 8080

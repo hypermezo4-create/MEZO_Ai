@@ -3,7 +3,7 @@ primary_region = "ams"
 kill_signal = "SIGTERM"
 kill_timeout = "90s"
 [build]
-  dockerfile = "mezo-runner/Dockerfile"
+  dockerfile = "../../mezo-runner/Dockerfile"
 [env]
   MEZO_API_URL = "http://mezo-web.internal:8080"
   ROUTER_URL = "http://mezo-router.internal:8080/v1"

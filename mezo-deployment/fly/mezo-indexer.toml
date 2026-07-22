@@ -3,7 +3,7 @@ primary_region = "ams"
 kill_signal = "SIGTERM"
 kill_timeout = "60s"
 [build]
-  dockerfile = "mezo-indexer/Dockerfile"
+  dockerfile = "../../mezo-indexer/Dockerfile"
 [mounts]
   source = "mezo_index_data"
   destination = "/index"
