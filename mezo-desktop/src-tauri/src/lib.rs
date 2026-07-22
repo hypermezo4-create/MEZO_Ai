@@ -25,13 +25,21 @@ fn control_machine_hostname() -> Result<String, String> {
     let machines: serde_json::Value = serde_json::from_slice(&output.stdout)
         .map_err(|_| "flyctl returned invalid Machine inventory".to_string())?;
     for machine in machines.as_array().into_iter().flatten() {
-        let role = machine.pointer("/config/metadata/role").and_then(|v| v.as_str())
-            .or_else(|| machine.pointer("/config/metadata/fly_process_group").and_then(|v| v.as_str()));
+        let role = machine
+            .pointer("/config/metadata/role")
+            .and_then(|v| v.as_str())
+            .or_else(|| {
+                machine
+                    .pointer("/config/metadata/fly_process_group")
+                    .and_then(|v| v.as_str())
+            });
         let state = machine.get("state").and_then(|v| v.as_str());
         if role != Some("control") || state != Some("started") {
             continue;
         }
-        let Some(id) = machine.get("id").and_then(|v| v.as_str()) else { continue };
+        let Some(id) = machine.get("id").and_then(|v| v.as_str()) else {
+            continue;
+        };
         let status = Command::new("fly")
             .args(["machine", "status", id, "--app", FLY_APP, "--json"])
             .output();
@@ -61,7 +69,15 @@ fn tunnel(stop: Arc<AtomicBool>) {
             };
             let mut command = Command::new("fly");
             command
-                .args(["proxy", "8787:8080", &remote_host, "--app", FLY_APP, "--bind-addr", "127.0.0.1"])
+                .args([
+                    "proxy",
+                    "8787:8080",
+                    &remote_host,
+                    "--app",
+                    FLY_APP,
+                    "--bind-addr",
+                    "127.0.0.1",
+                ])
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null());

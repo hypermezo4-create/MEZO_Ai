@@ -35,7 +35,7 @@ EXPECTED_MACHINE_SLOTS = [
 
 
 def machine_slots(registrations: list[dict[str, Any]], router_state: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return the fixed 20-slot topology, merging live runner and model health."""
+    """Return the fixed nine-slot topology, merging live Machine and model health."""
     live_by_role: dict[str, list[dict[str, Any]]] = {}
     for machine in registrations:
         live_by_role.setdefault(machine["role"], []).append(machine)
@@ -47,7 +47,14 @@ def machine_slots(registrations: list[dict[str, Any]], router_state: dict[str, A
         role_position[role] = position + 1
         live = live_by_role.get(role, [])
         if position < len(live):
-            slots.append({"slot_id": slot_id, **live[position]})
+            registered = dict(live[position])
+            registered.setdefault("app", app)
+            registered.setdefault("region", "ord")
+            registered.setdefault("size", size)
+            registered.setdefault("memory_mb", memory_mb)
+            registered["slot_id"] = slot_id
+            registered["role"] = role
+            slots.append(registered)
             continue
         model_key = {"qwen-coder": "coding", "glm": "deep", "deepseek": "debug"}.get(role, role)
         health = model_health.get(model_key, {}) if isinstance(model_health, dict) else {}

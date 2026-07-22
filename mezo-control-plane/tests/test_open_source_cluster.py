@@ -39,14 +39,38 @@ def test_single_user_task_flow_has_no_login(monkeypatch, tmp_path):
     assert finished.json()["reviewer_chain"] == ["qwen-coder", "deepseek"]
 
 
-def test_cluster_status_always_describes_exactly_twenty_slots():
+def test_cluster_status_always_describes_exactly_nine_slots():
     slots = open_source_api.machine_slots(
-        [{"machine_id": "runner-machine", "role": "runner", "app": "mezo-runner", "status": "online"}],
-        {"healthy": True, "models": {"coding": {"healthy": True}}},
+        [
+            {
+                "machine_id": "runner-machine",
+                "role": "runner-1",
+                "app": "mezo-ai",
+                "status": "online",
+            }
+        ],
+        {"healthy": True, "models": {}},
     )
-    assert len(slots) == 20
-    assert len({slot["slot_id"] for slot in slots}) == 20
-    assert sum(slot["role"] == "runner" for slot in slots) == 4
-    assert sum(slot["role"] == "qwen-coder" for slot in slots) == 2
-    assert next(slot for slot in slots if slot["slot_id"] == "runner-1")["machine_id"] == "runner-machine"
-    assert next(slot for slot in slots if slot["slot_id"] == "qwen-coder-1")["status"] == "online"
+
+    expected_slot_ids = {
+        "control",
+        "runner-1",
+        "runner-2",
+        "coder-1",
+        "coder-2",
+        "reasoning",
+        "reviewer",
+        "vision",
+        "utility",
+    }
+
+    assert len(slots) == 9
+    assert {slot["slot_id"] for slot in slots} == expected_slot_ids
+    assert sum(slot["role"].startswith("runner-") for slot in slots) == 2
+    assert sum(slot["role"].startswith("coder-") for slot in slots) == 2
+    assert next(
+        slot for slot in slots if slot["slot_id"] == "runner-1"
+    )["machine_id"] == "runner-machine"
+    assert all(slot["app"] == "mezo-ai" for slot in slots)
+    assert all(slot["region"] == "ord" for slot in slots)
+    assert all(slot["memory_mb"] == 131072 for slot in slots)
