@@ -35,7 +35,7 @@ function Ensure-Volumes([string]$App, [string]$Name, [int]$Size, [int]$Count) {
     if ($missing -gt 0) { Invoke-Fly @("volumes", "create", $Name, "--app", $App, "--region", "ams", "--size", "$Size", "--count", "$missing", "--yes") }
 }
 function Deploy-One([string]$Config) {
-    Invoke-Fly @("deploy", "--config", (Join-Path $root $Config), "--ha=false", "--remote-only", "--yes")
+    Invoke-Fly @("deploy", "--config", (Join-Path $root $Config), "--ha=false", "--remote-only", "--wait-timeout", "2h", "--yes")
 }
 function Scale([string]$App, [int]$Count) { Invoke-Fly @("scale", "count", "$Count", "--app", $App, "--region", "ams", "--yes") }
 function Cluster-MachineCount {

@@ -14,7 +14,7 @@ kill_timeout = "180s"
   port = 8080
   interval = "30s"
   timeout = "5s"
-  grace_period = "60s"
+  grace_period = "2h"
 [[vm]]
   size = "performance-16x"
   memory = "128gb"
