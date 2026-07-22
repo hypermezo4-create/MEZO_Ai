@@ -135,9 +135,9 @@ class CommandRunner:
                 "bwrap", "--die-with-parent", "--new-session", "--unshare-user", "--unshare-pid", "--unshare-ipc", "--unshare-uts",
                 "--ro-bind", "/", "/", "--bind", str(self.workspace.task_root), str(self.workspace.task_root),
                 "--tmpfs", "/tmp", "--proc", "/proc", "--dev", "/dev", "--chdir", str(resolved_cwd),
-                "--uid", str(self.workspace.task_uid), "--gid", str(self.workspace.task_gid), "--", *execution_argv,
+                # bwrap runs as the host task user, mapped to root only inside the user namespace.
+                "--uid", "0", "--gid", "0", "--", *execution_argv,
             ]
-            child_setup = None
         self.current_process = await asyncio.create_subprocess_exec(
             *isolated_argv,
             cwd=resolved_cwd,
