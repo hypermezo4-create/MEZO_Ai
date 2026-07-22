@@ -15,19 +15,15 @@ function New-Secret([int]$Bytes = 48) {
 }
 function Import-Secrets([string]$App, [hashtable]$Values) {
     $payload = ($Values.GetEnumerator() | ForEach-Object { $_.Key + "=" + $_.Value }) -join "`n"
-    $start = New-Object System.Diagnostics.ProcessStartInfo
-    $start.FileName = "fly"
-    $start.Arguments = "secrets import --app `"$App`""
-    $start.UseShellExecute = $false
-    $start.RedirectStandardInput = $true
-    $start.StandardInputEncoding = New-Object System.Text.UTF8Encoding($false)
-    $process = New-Object System.Diagnostics.Process
-    $process.StartInfo = $start
-    [void]$process.Start()
-    $process.StandardInput.Write($payload)
-    $process.StandardInput.Close()
-    $process.WaitForExit()
-    if ($process.ExitCode -ne 0) { throw "Could not import secrets for $App" }
+    $previous = $env:MEZO_SECRET_IMPORT_B64
+    try {
+        $env:MEZO_SECRET_IMPORT_B64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($payload))
+        & python -c "import base64,os,subprocess,sys; data=base64.b64decode(os.environ.pop('MEZO_SECRET_IMPORT_B64')); raise SystemExit(subprocess.run(['fly','secrets','import','--app',sys.argv[1]],input=data).returncode)" $App
+        if ($LASTEXITCODE -ne 0) { throw "Could not import secrets for $App" }
+    } finally {
+        if ($null -eq $previous) { Remove-Item Env:MEZO_SECRET_IMPORT_B64 -ErrorAction SilentlyContinue }
+        else { $env:MEZO_SECRET_IMPORT_B64 = $previous }
+    }
 }
 function Import-IfExists([string]$App, [hashtable]$Values) {
     if (App-Exists $App) { Import-Secrets $App $Values }
