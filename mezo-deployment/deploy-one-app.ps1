@@ -6,7 +6,7 @@ $region = "ord"
 $root = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot "fly-json.ps1")
 
-function Fly([string[]]$Args) { & fly @Args; if ($LASTEXITCODE -ne 0) { throw "fly command failed: $($Args -join ' ')" } }
+function Invoke-Fly([string[]]$Args) { & fly @Args; if ($LASTEXITCODE -ne 0) { throw "fly command failed: $($Args -join ' ')" } }
 function Secret([int]$Bytes = 48) {
     $b = New-Object byte[] $Bytes; $r = [Security.Cryptography.RandomNumberGenerator]::Create()
     try { $r.GetBytes($b) } finally { $r.Dispose() }
@@ -25,12 +25,12 @@ function Import-Secrets([hashtable]$Values) {
 }
 function Ensure-App {
     $apps = @(Invoke-FlyJson @("apps","list","--org",$org,"--json") "fly apps list")
-    if (@($apps | Where-Object { $_.Name -eq $app }).Count -eq 0) { Fly @("apps","create",$app,"--org",$org) }
+    if (@($apps | Where-Object { $_.Name -eq $app }).Count -eq 0) { Invoke-Fly @("apps","create",$app,"--org",$org) }
 }
 function Ensure-Volume([string]$Name, [int]$Size, [string]$Mount, [string]$VmSize, [int]$Memory) {
     $v = @(Invoke-FlyJson @("volumes","list","--app",$app,"--json") "fly volumes list" | Where-Object { $_.name -eq $Name })
     foreach ($x in $v) { if ($x.size_gb -ne $Size -or $x.region -ne $region) { throw "Conflicting volume $Name" } }
-    if ($v.Count -eq 0) { Fly @("volumes","create",$Name,"--app",$app,"--region",$region,"--size","$Size","--vm-size",$VmSize,"--vm-memory","$Memory","--yes") }
+    if ($v.Count -eq 0) { Invoke-Fly @("volumes","create",$Name,"--app",$app,"--region",$region,"--size","$Size","--vm-size",$VmSize,"--vm-memory","$Memory","--yes") }
 }
 function Role-Machine([string]$Role) {
     @(Invoke-FlyJson @("machines","list","--app",$app,"--json") "fly machines list" | Where-Object {
@@ -42,7 +42,7 @@ function Run-Role([hashtable]$Spec) {
     $args = @("machine","run",".","--app",$app,"--org",$org,"--region",$region,"--dockerfile",$Spec.dockerfile,"--vm-size",$Spec.size,"--vm-memory","$($Spec.memory)","--metadata","fly_platform_version=v2","--metadata","fly_process_group=$($Spec.role)","--env","MEZO_APP_NAME=$app","--restart","always")
     foreach ($e in $Spec.env.GetEnumerator()) { $args += @("--env","$($e.Key)=$($e.Value)") }
     if ($Spec.volume) { $args += @("--volume","$($Spec.volume):$($Spec.mount)") }
-    Fly $args
+    Invoke-Fly $args
     Write-Output "Created $($Spec.role)"
 }
 
@@ -62,7 +62,7 @@ if (-not $pg) {
     $pg = @(Invoke-FlyJson @("mpg","list","--org",$org,"--json") "fly mpg list") | Where-Object { $_.name -eq "mezo-postgres-ord" } | Select-Object -First 1
 }
 if (-not $pg) { throw "Could not verify ord MPG" }
-if ('DATABASE_URL' -notin $names) { Fly @("mpg","attach",$pg.id,"--app",$app) }
+if ('DATABASE_URL' -notin $names) { Invoke-Fly @("mpg","attach",$pg.id,"--app",$app) }
 
 Ensure-Volume "mezo_queue_data" 20 "data" "shared-cpu-2x" 4096
 Ensure-Volume "mezo_index_data" 100 "index" "performance-4x" 32768
