@@ -9,7 +9,8 @@ function Invoke-Fly([string[]]$Arguments) {
 }
 function New-Secret([int]$Bytes = 48) {
     $buffer = New-Object byte[] $Bytes
-    [Security.Cryptography.RandomNumberGenerator]::Fill($buffer)
+    $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $generator.GetBytes($buffer) } finally { $generator.Dispose() }
     [Convert]::ToBase64String($buffer).TrimEnd("=").Replace("+", "-").Replace("/", "_")
 }
 function Import-Secrets([string]$App, [hashtable]$Values) {
