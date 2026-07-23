@@ -12,11 +12,11 @@ import {
   Eye,
   FileCode2,
   FolderGit2,
-  Gauge,
   GitBranch,
   Layers3,
   LoaderCircle,
   MessageSquarePlus,
+  PanelRightOpen,
   Plus,
   RefreshCw,
   Send,
@@ -46,23 +46,45 @@ const terminalStates = new Set(["completed", "failed", "cancelled"])
 const modeOptions: Array<{
   value: Mode
   label: string
+  short: string
   description: string
   icon: typeof Sparkles
 }> = [
-  { value: "auto", label: "Auto", description: "MEZO picks the best specialist", icon: Sparkles },
-  { value: "fast", label: "Fast", description: "Quick answers and lightweight work", icon: Zap },
-  { value: "coding", label: "Coding", description: "Repository-aware coding agent", icon: Code2 },
-  { value: "deep", label: "Reasoning", description: "Architecture and complex planning", icon: BrainCircuit },
-  { value: "vision", label: "Vision", description: "Images, screenshots and interfaces", icon: Eye },
-  { value: "multi", label: "Multi", description: "Several specialists collaborate", icon: Layers3 },
+  { value: "auto", label: "Auto", short: "Best model", description: "MEZO chooses the right specialist", icon: Sparkles },
+  { value: "fast", label: "Fast", short: "Quick reply", description: "Chat, summaries and lightweight work", icon: Zap },
+  { value: "coding", label: "Coding", short: "Build & fix", description: "Repository-aware coding agent", icon: Code2 },
+  { value: "deep", label: "Reasoning", short: "Think deeply", description: "Architecture and complex planning", icon: BrainCircuit },
+  { value: "vision", label: "Vision", short: "See & analyse", description: "Images, screenshots and interfaces", icon: Eye },
+  { value: "multi", label: "Multi-agent", short: "Team mode", description: "Several specialists collaborate", icon: Layers3 },
 ]
 
 const modelCards = [
-  { key: "fast", label: "Fast", purpose: "Chat, routing and short tasks", icon: Zap },
-  { key: "coding", label: "Qwen Coder", purpose: "Code generation and repository edits", icon: Code2 },
+  { key: "fast", label: "MEZO Fast", purpose: "Routing, chat and short tasks", icon: Zap },
+  { key: "coding", label: "Qwen Coder", purpose: "Code, repositories and tests", icon: Code2 },
   { key: "deep", label: "GLM Reasoning", purpose: "Architecture and difficult analysis", icon: BrainCircuit },
-  { key: "debug", label: "DeepSeek Reviewer", purpose: "Review, debugging and safety", icon: ShieldCheck },
-  { key: "vision", label: "Qwen Vision", purpose: "Images, screenshots and UI analysis", icon: Eye },
+  { key: "debug", label: "DeepSeek Reviewer", purpose: "Review, debugging and security", icon: ShieldCheck },
+  { key: "vision", label: "Qwen Vision", purpose: "Images, screenshots and UI", icon: Eye },
+]
+
+const suggestionCards = [
+  {
+    icon: Code2,
+    title: "Build or fix code",
+    body: "Inspect the selected repository and implement the right change.",
+    prompt: "Inspect the selected repository, identify the root cause of its most important issue, and fix only what is necessary.",
+  },
+  {
+    icon: BrainCircuit,
+    title: "Plan a system",
+    body: "Use deep reasoning for architecture and technical decisions.",
+    prompt: "Review the project architecture and propose a practical improvement plan with risks and priorities.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Review a patch",
+    body: "Find correctness, security and regression risks.",
+    prompt: "Review the current project for correctness, security risks, missing tests, and unsafe assumptions.",
+  },
 ]
 
 function humanStatus(value: string): string {
@@ -76,11 +98,7 @@ function eventSummary(event: TaskEvent): string {
   return humanStatus(event.event_type)
 }
 
-function HealthDot({ healthy }: { healthy: boolean }) {
-  return <span className={`health-dot ${healthy ? "healthy" : "unhealthy"}`} aria-label={healthy ? "healthy" : "unavailable"} />
-}
-
-function ModelCard({ name, purpose, health, icon: Icon }: {
+function ModelRow({ name, purpose, health, icon: Icon }: {
   name: string
   purpose: string
   health?: ModelHealth
@@ -88,26 +106,27 @@ function ModelCard({ name, purpose, health, icon: Icon }: {
 }) {
   const healthy = Boolean(health?.healthy)
   const replicas = health?.replicas?.filter(item => item.healthy).length ?? 0
-  return <article className="model-card">
-    <div className="model-icon"><Icon /></div>
-    <div className="model-copy">
-      <div className="model-title"><strong>{name}</strong><HealthDot healthy={healthy} /></div>
-      <p>{purpose}</p>
-      <small>{healthy ? `${replicas || 1} active · ${health?.latency_ms ?? 0} ms` : "Not running yet"}</small>
-    </div>
+
+  return <article className="model-row">
+    <span className="model-symbol"><Icon /></span>
+    <span className="model-details">
+      <span className="model-name"><strong>{name}</strong><i className={healthy ? "online" : "offline"} /></span>
+      <small>{purpose}</small>
+    </span>
+    <span className="model-state">{healthy ? `${replicas || 1} active` : "offline"}</span>
   </article>
 }
 
 function MessageBubble({ message }: { message: Message }) {
   const assistant = message.role === "assistant"
-  return <article className={`message-row ${assistant ? "assistant" : "user"}`}>
-    <div className="message-avatar">{assistant ? <Bot /> : "You"}</div>
+  return <article className={`message ${assistant ? "assistant" : "user"}`}>
+    <div className="message-avatar">{assistant ? <span className="mini-logo">M</span> : <span>You</span>}</div>
     <div className="message-body">
       <div className="message-meta">
         <strong>{assistant ? "MEZO" : "You"}</strong>
-        <span>{message.created_at ? new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</span>
+        <time>{message.created_at ? new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</time>
       </div>
-      <div className="message-content">{message.content}</div>
+      <div className="message-content" dir="auto">{message.content}</div>
     </div>
   </article>
 }
@@ -129,6 +148,7 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [projectBusy, setProjectBusy] = useState(false)
   const [showProjectForm, setShowProjectForm] = useState(false)
+  const [showInspector, setShowInspector] = useState(false)
   const [error, setError] = useState("")
 
   const selectedConversation = useMemo(
@@ -146,7 +166,7 @@ export default function App() {
   const activeMode = modeOptions.find(item => item.value === mode) ?? modeOptions[0]
   const ActiveModeIcon = activeMode.icon
   const onlineMachines = status?.machines.filter(machine => machine.status === "online" || machine.status === "busy").length ?? 0
-  const totalMachines = status?.configured_machine_count ?? status?.machines.length ?? 0
+  const totalMachines = status?.configured_machine_count ?? status?.machines.length ?? 9
   const runningTask = Boolean(selectedTask && !terminalStates.has(selectedTask.status))
 
   const refresh = async () => {
@@ -239,6 +259,7 @@ export default function App() {
       setError("Choose a project before starting an agent task")
       return
     }
+
     setBusy(true)
     setError("")
     setEvents([])
@@ -253,6 +274,7 @@ export default function App() {
       setConversationId(result.conversation_id)
       setMessages(await api.messages(result.conversation_id))
       setPrompt("")
+      if (result.task) setShowInspector(true)
       await refresh()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "MEZO could not complete the request")
@@ -289,17 +311,18 @@ export default function App() {
     }
   }
 
-  return <div className="app-shell">
+  return <div className="mezo-app">
     <aside className="sidebar">
       <div className="brand">
-        <div className="brand-mark" aria-hidden="true"><span>M</span><i /></div>
-        <div><strong>MEZO AI</strong><small>Private agent cluster</small></div>
+        <div className="brand-logo" aria-label="MEZO AI logo"><span>M</span><i /></div>
+        <div><strong>MEZO AI</strong><small>Private intelligence</small></div>
       </div>
+
       <button className="new-chat" onClick={newChat}><MessageSquarePlus /> New chat</button>
 
-      <nav className="sidebar-section" aria-label="Conversations">
-        <div className="section-heading"><span>Conversations</span><small>{conversations.length}</small></div>
-        <div className="sidebar-list">
+      <nav className="sidebar-block" aria-label="Conversations">
+        <div className="sidebar-heading"><span>Recent</span><small>{conversations.length}</small></div>
+        <div className="conversation-list">
           {conversations.length === 0 && <p className="sidebar-empty">Your conversations will appear here.</p>}
           {conversations.map(conversation => <button
             key={conversation.id}
@@ -309,31 +332,43 @@ export default function App() {
         </div>
       </nav>
 
-      <section className="sidebar-section projects-section">
-        <div className="section-heading"><span>Projects</span><button className="icon-button" aria-label="Add project" onClick={() => setShowProjectForm(value => !value)}><Plus /></button></div>
+      <section className="sidebar-block projects-block">
+        <div className="sidebar-heading">
+          <span>Projects</span>
+          <button className="small-icon" aria-label="Add project" onClick={() => setShowProjectForm(value => !value)}><Plus /></button>
+        </div>
+
         {showProjectForm && <form className="project-form" onSubmit={addProject}>
           <label>Repository URL<input aria-label="Repository URL" type="url" required value={repoUrl} onChange={event => setRepoUrl(event.target.value)} placeholder="https://github.com/owner/repo.git" /></label>
           <label>Default branch<input value={repoBranch} onChange={event => setRepoBranch(event.target.value)} placeholder="main" /></label>
-          <div className="project-form-actions"><button type="button" onClick={() => setShowProjectForm(false)}>Cancel</button><button className="primary" disabled={projectBusy}>{projectBusy ? <LoaderCircle className="spin" /> : <Plus />} Add</button></div>
+          <div><button type="button" onClick={() => setShowProjectForm(false)}>Cancel</button><button className="primary" disabled={projectBusy}>{projectBusy ? <LoaderCircle className="spin" /> : <Plus />} Add</button></div>
         </form>}
-        <div className="sidebar-list project-list">
-          {projects.length === 0 && !showProjectForm && <button className="empty-project" onClick={() => setShowProjectForm(true)}><FolderGit2 /> Add your first repository</button>}
+
+        <div className="project-list">
+          {projects.length === 0 && !showProjectForm && <button className="empty-project" onClick={() => setShowProjectForm(true)}><FolderGit2 /> Connect a repository</button>}
           {projects.map(project => <button key={project.id} className={project.id === projectId ? "active" : ""} onClick={() => setProjectId(project.id)}>
             <span><FolderGit2 />{project.name}</span><small>{project.default_branch}</small>
           </button>)}
         </div>
       </section>
 
-      <div className="cluster-mini">
-        <div><Server /><span><strong>{onlineMachines}/{totalMachines || 9}</strong><small>Machines online</small></span></div>
-        <div className={`cluster-pulse ${status?.router.healthy ? "online" : "offline"}`} />
-      </div>
+      <button className="cluster-card" onClick={() => setShowInspector(true)}>
+        <span className="cluster-icon"><Server /></span>
+        <span><strong>{onlineMachines}/{totalMachines}</strong><small>machines online</small></span>
+        <i className={status?.router.healthy ? "online" : "offline"} />
+      </button>
     </aside>
 
     <main className="workspace">
-      <header className="workspace-header">
-        <div><span className="eyebrow">MEZO WORKSPACE</span><h1>{selectedConversation?.title || "What should MEZO build?"}</h1></div>
-        <div className="header-actions"><button className="status-button" onClick={() => void refresh()}><RefreshCw /><span>{status?.router.healthy ? "Cluster ready" : "Checking cluster"}</span></button></div>
+      <header className="topbar">
+        <div className="topbar-title">
+          <span className="mobile-logo">M</span>
+          <div><strong>{selectedConversation?.title || "New conversation"}</strong><small>{selectedProject ? selectedProject.name : "No project selected"}</small></div>
+        </div>
+        <div className="topbar-actions">
+          <button className="connection-pill" onClick={() => void refresh()}><span className={status?.router.healthy ? "online" : "offline"} /><span>{status?.router.healthy ? "Ready" : "Local API"}</span><RefreshCw /></button>
+          <button className="inspector-toggle" aria-label="Open MEZO status" onClick={() => setShowInspector(true)}><PanelRightOpen /></button>
+        </div>
       </header>
 
       {error && <div className="error-banner"><X /><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError("")}><X /></button></div>}
@@ -341,35 +376,43 @@ export default function App() {
       <section className="conversation-view">
         {messages.length === 0 ? <div className="welcome">
           <div className="hero-logo"><span>M</span><i /></div>
-          <span className="eyebrow">YOUR PRIVATE AI ENGINEERING TEAM</span>
-          <h2>What should MEZO build?</h2>
-          <p>Chat normally, inspect a repository, or let specialist models collaborate on a complete engineering task.</p>
+          <p className="hero-kicker"><Sparkles /> PRIVATE AI WORKSPACE</p>
+          <h1>What should MEZO build?</h1>
+          <p className="hero-copy" dir="auto">اكتب طلبك بالعربي أو الإنجليزي. MEZO يختار الموديل المناسب، أو يشغّل فريقًا كاملًا على مشروعك.</p>
+
           <div className="suggestions">
-            <button onClick={() => setPrompt("Review my project architecture and identify the highest-risk problems.")}><BrainCircuit /><span><strong>Review architecture</strong><small>Deep reasoning across the project</small></span></button>
-            <button onClick={() => setPrompt("Inspect the selected repository, find the failing tests, and fix only the root cause.")}><Code2 /><span><strong>Fix a repository</strong><small>Use the isolated coding agent</small></span></button>
-            <button onClick={() => setPrompt("Explain the current cluster status and what each specialist model does.")}><Activity /><span><strong>Inspect the cluster</strong><small>Understand models and machines</small></span></button>
+            {suggestionCards.map(card => <button key={card.title} onClick={() => setPrompt(card.prompt)}>
+              <span><card.icon /></span>
+              <strong>{card.title}</strong>
+              <small>{card.body}</small>
+            </button>)}
           </div>
         </div> : <div className="messages">
           {messages.map(message => <MessageBubble key={message.id} message={message} />)}
-          {runningTask && selectedTask && <article className="message-row assistant working-message">
-            <div className="message-avatar"><Bot /></div>
-            <div className="message-body"><div className="message-meta"><strong>MEZO</strong><span>{humanStatus(selectedTask.status)}</span></div><div className="working-line"><LoaderCircle className="spin" /><span>Working through the repository with the coding agent…</span></div></div>
+          {runningTask && selectedTask && <article className="message assistant working-message">
+            <div className="message-avatar"><span className="mini-logo">M</span></div>
+            <div className="message-body">
+              <div className="message-meta"><strong>MEZO</strong><time>{humanStatus(selectedTask.status)}</time></div>
+              <div className="working-line"><LoaderCircle className="spin" /><span>Working through the repository…</span><button onClick={() => setShowInspector(true)}>View activity</button></div>
+            </div>
           </article>}
         </div>}
       </section>
 
       <form className="composer" onSubmit={send}>
-        <div className="composer-topline">
-          <select aria-label="MEZO mode" value={mode} onChange={event => setMode(event.target.value as Mode)}>{modeOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
-          <select aria-label="Interaction type" value={interaction} onChange={event => setInteraction(event.target.value as Interaction)}><option value="auto">Auto action</option><option value="chat">Chat only</option><option value="agent">Agent task</option></select>
-          <select aria-label="Project" value={projectId} onChange={event => setProjectId(event.target.value)}><option value="">No project</option>{projects.map(project => <option key={project.id} value={project.id}>{project.name} · {project.default_branch}</option>)}</select>
+        <div className="composer-tools">
+          <label className="select-chip"><ActiveModeIcon /><select aria-label="MEZO mode" value={mode} onChange={event => setMode(event.target.value as Mode)}>{modeOptions.map(option => <option key={option.value} value={option.value}>{option.label} · {option.short}</option>)}</select></label>
+          <label className="select-chip"><Bot /><select aria-label="Interaction type" value={interaction} onChange={event => setInteraction(event.target.value as Interaction)}><option value="auto">Auto action</option><option value="chat">Chat only</option><option value="agent">Agent task</option></select></label>
+          <label className="select-chip project-chip"><FolderGit2 /><select aria-label="Project" value={projectId} onChange={event => setProjectId(event.target.value)}><option value="">No project</option>{projects.map(project => <option key={project.id} value={project.id}>{project.name} · {project.default_branch}</option>)}</select></label>
         </div>
-        <div className="composer-main">
+
+        <div className="composer-input">
           <textarea
             aria-label="Message MEZO"
             value={prompt}
             onChange={event => setPrompt(event.target.value)}
             placeholder={selectedProject ? `Message MEZO about ${selectedProject.name}…` : "Message MEZO…"}
+            dir="auto"
             onKeyDown={event => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault()
@@ -379,33 +422,40 @@ export default function App() {
           />
           {runningTask ? <button type="button" className="stop-button" onClick={() => void cancelTask()} disabled={busy} aria-label="Stop task"><CircleStop /></button> : <button className="send-button" disabled={busy || !prompt.trim()} aria-label="Send message">{busy ? <LoaderCircle className="spin" /> : <Send />}</button>}
         </div>
-        <div className="composer-footer"><span><ActiveModeIcon /> {activeMode.label}: {activeMode.description}</span><small>Enter to send · Shift + Enter for a new line</small></div>
+        <p className="composer-note">MEZO can make mistakes. Review changes before accepting them.</p>
       </form>
     </main>
 
-    <aside className="inspector">
-      <section className="inspector-section cluster-overview">
-        <div className="inspector-heading"><div><span className="eyebrow">LIVE CLUSTER</span><h2>MEZO specialists</h2></div><Gauge /></div>
-        <div className="cluster-stats"><div><strong>{onlineMachines}</strong><span>Online</span></div><div><strong>{status?.max_machine_count ?? 20}</strong><span>Capacity</span></div><div><strong>{status?.max_concurrent_tasks ?? 4}</strong><span>Parallel tasks</span></div></div>
-        <div className="model-grid">{modelCards.map(model => <ModelCard key={model.key} name={model.label} purpose={model.purpose} health={status?.router.models?.[model.key]} icon={model.icon} />)}</div>
-      </section>
+    <div className={`drawer-backdrop ${showInspector ? "visible" : ""}`} onClick={() => setShowInspector(false)} />
+    <aside className={`inspector ${showInspector ? "open" : ""}`} aria-hidden={!showInspector}>
+      <header className="inspector-header"><div><small>MEZO CONTROL</small><h2>System activity</h2></div><button aria-label="Close MEZO status" onClick={() => setShowInspector(false)}><X /></button></header>
 
       <section className="inspector-section">
-        <div className="inspector-heading"><div><span className="eyebrow">TASK EVIDENCE</span><h2>{selectedTask ? humanStatus(selectedTask.status) : "No active task"}</h2></div><FileCode2 /></div>
-        {!selectedTask && <div className="empty-evidence"><Terminal /><p>Start an agent task to see live tools, changed files, reviews and the final patch.</p></div>}
+        <div className="section-title"><span><Activity /> Cluster</span><small>{onlineMachines}/{totalMachines} online</small></div>
+        <div className="cluster-stats">
+          <div><strong>{onlineMachines}</strong><span>Online</span></div>
+          <div><strong>{status?.max_machine_count ?? 20}</strong><span>Capacity</span></div>
+          <div><strong>{status?.max_concurrent_tasks ?? 4}</strong><span>Tasks</span></div>
+        </div>
+        <div className="model-list">{modelCards.map(model => <ModelRow key={model.key} name={model.label} purpose={model.purpose} health={status?.router.models?.[model.key]} icon={model.icon} />)}</div>
+      </section>
+
+      <section className="inspector-section task-section">
+        <div className="section-title"><span><FileCode2 /> Task</span><small>{selectedTask ? humanStatus(selectedTask.status) : "idle"}</small></div>
+        {!selectedTask && <div className="empty-evidence"><Terminal /><p>Agent tools, changed files, reviews and patches will appear here.</p></div>}
         {selectedTask && <>
           <div className="task-meta"><div><span>Mode</span><strong>{selectedTask.mode}</strong></div><div><span>Runner</span><strong>{selectedTask.runner_id || "Waiting"}</strong></div><div><span>Files</span><strong>{selectedTask.changed_files.length}</strong></div></div>
-          {events.length > 0 && <div className="event-feed">{events.slice(-12).map(event => <div className="event-row" key={event.id}><span className="event-icon"><Terminal /></span><div><strong>{humanStatus(event.event_type)}</strong><pre>{eventSummary(event)}</pre></div></div>)}</div>}
+          {events.length > 0 && <div className="event-feed">{events.slice(-12).map(event => <div className="event-row" key={event.id}><span><Terminal /></span><div><strong>{humanStatus(event.event_type)}</strong><pre>{eventSummary(event)}</pre></div></div>)}</div>}
           {selectedTask.changed_files.length > 0 && <div className="changed-files"><h3><GitBranch />Changed files</h3>{selectedTask.changed_files.map(file => <div key={file.path}><code>{file.path}</code><span>{file.status || "M"}</span></div>)}</div>}
           {selectedTask.diff_text && <details className="diff-panel"><summary>View patch</summary><pre>{selectedTask.diff_text}</pre></details>}
           {selectedTask.error && <div className="task-error"><X /><span>{selectedTask.error}</span></div>}
           {selectedTask.reviewer_chain.length > 0 && <div className="review-chain"><h3><ShieldCheck />Review chain</h3><p>{selectedTask.reviewer_chain.join(" → ")}</p></div>}
-          <div className="task-actions">{selectedTask.status === "completed" && <>
+          {selectedTask.status === "completed" && <div className="task-actions">
             <button className="approve" disabled={busy || selectedTask.decision === "accept"} onClick={() => void decideTask("accept")}><Check />Accept</button>
             <button className="reject" disabled={busy || selectedTask.decision === "reject"} onClick={() => void decideTask("reject")}><X />Reject</button>
             <a href={api.patchUrl(selectedTask.id)}><Download />Patch</a>
             <a href={api.archiveUrl(selectedTask.id)}><Archive />Archive</a>
-          </>}</div>
+          </div>}
         </>}
       </section>
     </aside>
