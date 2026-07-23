@@ -1,15 +1,43 @@
 from __future__ import annotations
 
+import logging
 import os
+from json import JSONDecodeError
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 
+logger = logging.getLogger("mezo.control")
 legacy = os.getenv("MEZO_LEGACY_MODE", "").lower() in {"1", "true", "yes"}
-app = FastAPI(title="MEZO AI", version="2.0.0", docs_url=None, redoc_url=None)
+app = FastAPI(title="MEZO AI", version="2.1.0", docs_url=None, redoc_url=None)
+
+
+@app.exception_handler(JSONDecodeError)
+async def malformed_upstream_response(request: Request, exc: JSONDecodeError) -> JSONResponse:
+    logger.exception("MEZO received malformed JSON while serving %s", request.url.path)
+    return JSONResponse(
+        {
+            "detail": "MEZO router returned a non-JSON response",
+            "error_type": type(exc).__name__,
+        },
+        status_code=502,
+    )
+
+
+@app.exception_handler(Exception)
+async def unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception("Unhandled MEZO error while serving %s", request.url.path)
+    return JSONResponse(
+        {
+            "detail": f"MEZO internal error: {type(exc).__name__}",
+            "error_type": type(exc).__name__,
+        },
+        status_code=500,
+    )
+
 
 if legacy:
     from sqlalchemy import text
