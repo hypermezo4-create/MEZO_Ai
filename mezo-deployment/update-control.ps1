@@ -1,7 +1,8 @@
 param(
     [string]$App = "mezo-ai",
     [string]$ExpectedControlMachineId = "781232da224d98",
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [switch]$LocalBuild
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,6 +13,13 @@ function Invoke-Fly([string[]]$Arguments) {
     & fly @Arguments
     if ($LASTEXITCODE -ne 0) {
         throw "fly command failed: $($Arguments -join ' ')"
+    }
+}
+
+function Assert-LocalDocker {
+    & docker version *> $null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Local build requested, but Docker Desktop is not installed or its engine is not running"
     }
 }
 
@@ -93,16 +101,30 @@ try {
     $imageLabel = "control-runtime"
     $image = "registry.fly.io/$App`:$imageLabel"
     if (-not $SkipBuild) {
-        Invoke-Fly @(
-            "deploy", ".",
-            "--config", "mezo-deployment/fly.toml",
-            "--app", $App,
-            "--dockerfile", "mezo-control/Dockerfile",
-            "--build-only",
-            "--push",
-            "--remote-only",
-            "--image-label", $imageLabel
-        )
+        $buildMode = if ($LocalBuild) { "--local-only" } else { "--remote-only" }
+        if ($LocalBuild) {
+            Assert-LocalDocker
+            Write-Output "BUILDING mode=local image=$image"
+        } else {
+            Write-Output "BUILDING mode=remote image=$image"
+        }
+        try {
+            Invoke-Fly @(
+                "deploy", ".",
+                "--config", "mezo-deployment/fly.toml",
+                "--app", $App,
+                "--dockerfile", "mezo-control/Dockerfile",
+                "--build-only",
+                "--push",
+                $buildMode,
+                "--image-label", $imageLabel
+            )
+        } catch {
+            if (-not $LocalBuild -and $_.Exception.Message -match "overdue invoices|depot builder|status 403") {
+                throw "Fly remote build is blocked by billing. Start Docker Desktop and rerun: .\mezo-deployment\update-control.ps1 -LocalBuild"
+            }
+            throw
+        }
     }
 
     $arguments = @(
