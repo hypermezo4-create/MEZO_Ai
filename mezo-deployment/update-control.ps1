@@ -17,9 +17,14 @@ function Invoke-Fly([string[]]$Arguments) {
 }
 
 function Assert-LocalDocker {
-    & docker version *> $null
+    $dockerCommand = Get-Command docker -ErrorAction SilentlyContinue
+    if (-not $dockerCommand) {
+        throw "Docker CLI was not found. Install and start Docker Desktop, open a new PowerShell window, confirm 'docker version' shows both Client and Server, then rerun this script with -LocalBuild"
+    }
+
+    & $dockerCommand.Source version *> $null
     if ($LASTEXITCODE -ne 0) {
-        throw "Local build requested, but Docker Desktop is not installed or its engine is not running"
+        throw "Docker CLI is installed, but the Docker Desktop engine is not running. Start Docker Desktop, wait until it reports Running, then rerun this script with -LocalBuild"
     }
 }
 
