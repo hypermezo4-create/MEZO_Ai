@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="MEZO AI">
+  <defs>
+    <linearGradient id="g" x1="8" y1="6" x2="58" y2="60" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9b86ff"/>
+      <stop offset="0.58" stop-color="#7354ec"/>
+      <stop offset="1" stop-color="#4f35b5"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="18" fill="#0b0c0f"/>
+  <rect x="6" y="6" width="52" height="52" rx="15" fill="url(#g)"/>
+  <path d="M18 44V20h6.2L32 32.1 39.8 20H46v24h-7V31.3L32 42l-7-10.7V44h-7Z" fill="white"/>
+  <circle cx="48" cy="48" r="8.5" fill="none" stroke="white" stroke-opacity=".34"/>
+</svg>
