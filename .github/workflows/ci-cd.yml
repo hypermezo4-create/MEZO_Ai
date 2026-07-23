@@ -83,7 +83,7 @@ jobs:
       - run: pip install -r mezo-router/requirements.txt pytest==8.4.1
       - name: Router tests
         working-directory: mezo-router
-        run: pytest -q
+        run: python -m pytest -q
 
   frontend:
     runs-on: ubuntu-latest
