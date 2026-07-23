@@ -88,7 +88,11 @@ function Ensure-Machine($Spec) {
         "--vm-size","performance-16x","--vm-memory","131072",
         "--metadata","fly_platform_version=v2","--metadata","role=$($Spec.role)",
         "--restart","always","--volume","$($volume.id):$($Spec.mount)",
-        "--env","MEZO_APP_NAME=$app","--env","MEZO_BIND_HOST=::"
+        "--env","MEZO_APP_NAME=$app","--env","MEZO_BIND_HOST=::",
+        "--env","MEZO_MACHINE_ROLE=$($Spec.role)",
+        "--env","MEZO_MACHINE_SIZE=performance-16x",
+        "--env","MEZO_MACHINE_MEMORY_MB=131072",
+        "--env","MEZO_MAX_MACHINES=20"
     )
     if ($Spec.manifest) { $arguments += @("--env","MODEL_MANIFEST=$($Spec.manifest)","--env","MODEL_CONTEXT=32768") }
     Invoke-Fly $arguments
@@ -104,6 +108,9 @@ function Refresh-Registry {
     $values = @{
         CONTROL_URL = "http://$(Hostname $roles.control):8080"
         ROUTER_URL = "http://$(Hostname $roles.control):8081/v1"
+        MEZO_MAX_MACHINES = "20"
+        MEZO_CORE_MACHINE_COUNT = "9"
+        MEZO_MAX_CONCURRENT_TASKS = "4"
     }
     if ($roles.utility) {
         $values.FAST_URL = "http://$(Hostname $roles.utility):8101/v1"
@@ -120,6 +127,10 @@ function Refresh-Registry {
     foreach ($dependent in @($roles.control, $roles.'runner-1', $roles.'runner-2') | Where-Object { $_ }) {
         $arguments = @("machine","update",$dependent.id,"--app",$app,"--yes")
         foreach ($entry in $values.GetEnumerator()) { $arguments += @("--env","$($entry.Key)=$($entry.Value)") }
+        $dependentRole = [string]$dependent.config.metadata.role
+        if ($dependentRole) {
+            $arguments += @("--env","MEZO_MACHINE_ROLE=$dependentRole")
+        }
         Invoke-Fly $arguments
     }
 }
@@ -135,6 +146,10 @@ foreach ($spec in $selected) {
     Refresh-Registry
 }
 $machines = Get-Machines
-if ($machines.Count -gt 9) { throw "mezo-ai exceeds nine Machines" }
-if ($Role -eq "all" -and $machines.Count -ne 9) { throw "Expected nine Machines; found $($machines.Count)" }
+if ($machines.Count -gt 20) { throw "mezo-ai exceeds the configured 20-Machine capacity" }
+if ($Role -eq "all") {
+    $missing = @($topology.roles | Where-Object { -not (Get-RoleMachine $_.role) } | ForEach-Object role)
+    if ($missing.Count -gt 0) { throw "Missing core Machines: $($missing -join ', ')" }
+}
+Write-Output "CAPACITY machines=$($machines.Count)/20 core=9"
 Write-Output "POSTGRES name=$($postgres.name) id=$($postgres.id) status=$($postgres.status)"
