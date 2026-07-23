@@ -148,37 +148,31 @@ class Client {
     if (!response.ok || !reader) throw new Error(`Stream failed: HTTP ${response.status}`)
 
     const decoder = new TextDecoder()
+    const emitted = new Set<number>()
     let buffer = ""
+
+    const emitFrame = (frame: string) => {
+      const line = frame.split(/\r?\n/).find(item => item.startsWith("data: "))
+      if (!line) return
+      try {
+        const event = JSON.parse(line.slice(6)) as TaskEvent
+        if (!event.id || event.id <= after || emitted.has(event.id)) return
+        emitted.add(event.id)
+        onEvent(event)
+      } catch {
+        // Ignore one malformed frame without dropping the live stream.
+      }
+    }
 
     while (true) {
       const { value, done } = await reader.read()
       buffer += decoder.decode(value, { stream: !done })
       const frames = buffer.split(/\r?\n\r?\n/)
       buffer = frames.pop() || ""
-
-      for (const frame of frames) {
-        const line = frame.split(/\r?\n/).find(item => item.startsWith("data: "))
-        if (!line) continue
-        try {
-          const event = JSON.parse(line.slice(6)) as TaskEvent
-          if (event.id) onEvent(event)
-        } catch {
-          // Ignore one malformed frame without dropping the live stream.
-        }
-      }
+      frames.forEach(emitFrame)
 
       if (done) {
-        if (buffer.trim()) {
-          const line = buffer.split(/\r?\n/).find(item => item.startsWith("data: "))
-          if (line) {
-            try {
-              const event = JSON.parse(line.slice(6)) as TaskEvent
-              if (event.id) onEvent(event)
-            } catch {
-              // The final partial frame was not valid JSON.
-            }
-          }
-        }
+        if (buffer.trim()) emitFrame(buffer)
         return
       }
     }
