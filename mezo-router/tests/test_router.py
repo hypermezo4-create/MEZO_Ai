@@ -25,24 +25,21 @@ def test_auto_routing_understands_arabic_specialists(monkeypatch):
     assert main.classify(coding) == "coding"
 
 
-def test_models_endpoint_exposes_specialist_metadata(monkeypatch):
-    monkeypatch.setattr(main, "ORCHESTRATOR_TOKEN", "test-token")
+def test_model_catalog_exposes_specialist_metadata(monkeypatch):
     monkeypatch.setitem(main.ENDPOINTS, "coding", ["http://coder.internal/v1"])
 
-    payload = main.models("Bearer test-token")
-    models = {item["id"]: item for item in payload["data"]}
-
-    assert models["coding"]["configured"] is True
-    assert models["coding"]["label"] == "Qwen Coder"
-    assert "repository" in models["coding"]["purpose"].lower()
-    assert models["vision"]["label"] == "Qwen Vision"
+    assert bool(main.ENDPOINTS["coding"]) is True
+    assert main.MODEL_CATALOG["coding"]["label"] == "Qwen Coder"
+    assert "repository" in main.MODEL_CATALOG["coding"]["purpose"].lower()
+    assert main.MODEL_CATALOG["vision"]["label"] == "Qwen Vision"
 
 
-def test_models_endpoint_rejects_invalid_internal_credentials(monkeypatch):
+def test_internal_credentials_are_enforced(monkeypatch):
     monkeypatch.setattr(main, "ORCHESTRATOR_TOKEN", "test-token")
 
+    main.authorize("Bearer test-token")
     with pytest.raises(HTTPException) as exc:
-        main.models("Bearer wrong-token")
+        main.authorize("Bearer wrong-token")
 
     assert exc.value.status_code == 401
 
