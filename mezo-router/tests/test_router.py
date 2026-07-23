@@ -1,4 +1,5 @@
-from fastapi.testclient import TestClient
+from fastapi import HTTPException
+import pytest
 
 import main
 
@@ -27,16 +28,23 @@ def test_auto_routing_understands_arabic_specialists(monkeypatch):
 def test_models_endpoint_exposes_specialist_metadata(monkeypatch):
     monkeypatch.setattr(main, "ORCHESTRATOR_TOKEN", "test-token")
     monkeypatch.setitem(main.ENDPOINTS, "coding", ["http://coder.internal/v1"])
-    client = TestClient(main.app)
 
-    response = client.get("/v1/models", headers={"Authorization": "Bearer test-token"})
+    payload = main.models("Bearer test-token")
+    models = {item["id"]: item for item in payload["data"]}
 
-    assert response.status_code == 200
-    models = {item["id"]: item for item in response.json()["data"]}
     assert models["coding"]["configured"] is True
     assert models["coding"]["label"] == "Qwen Coder"
     assert "repository" in models["coding"]["purpose"].lower()
     assert models["vision"]["label"] == "Qwen Vision"
+
+
+def test_models_endpoint_rejects_invalid_internal_credentials(monkeypatch):
+    monkeypatch.setattr(main, "ORCHESTRATOR_TOKEN", "test-token")
+
+    with pytest.raises(HTTPException) as exc:
+        main.models("Bearer wrong-token")
+
+    assert exc.value.status_code == 401
 
 
 def test_explicit_mode_is_not_reclassified():
