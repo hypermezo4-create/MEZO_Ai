@@ -104,6 +104,17 @@ export interface TaskEvent {
   created_at: string
 }
 
+function isHtml(value: string): boolean {
+  const normalized = value.trimStart().toLowerCase()
+  return normalized.startsWith("<!doctype html") || normalized.startsWith("<html")
+}
+
+function apiProxyError(path: string): Error {
+  return new Error(
+    `MEZO API proxy is not active for ${path}. Stop the web server, keep fly proxy on port 8787 running, then start npm run dev:web again.`,
+  )
+}
+
 class Client {
   private async request<T>(path: string, options?: RequestInit): Promise<T> {
     const response = await fetch(path, {
@@ -114,14 +125,29 @@ class Client {
       },
     })
 
-    if (!response.ok) {
-      const fallback = `${response.status} ${response.statusText}`.trim()
-      const payload = await response.json().catch(() => ({ detail: fallback })) as { detail?: string }
-      throw new Error(payload.detail || fallback || "MEZO request failed")
+    if (response.status === 204) return undefined as T
+
+    const raw = await response.text()
+    if (isHtml(raw)) throw apiProxyError(path)
+
+    let payload: unknown = null
+    if (raw) {
+      try {
+        payload = JSON.parse(raw)
+      } catch {
+        throw new Error(`MEZO API returned an invalid response for ${path}`)
+      }
     }
 
-    if (response.status === 204) return undefined as T
-    return response.json() as Promise<T>
+    if (!response.ok) {
+      const fallback = `${response.status} ${response.statusText}`.trim()
+      const detail = typeof payload === "object" && payload !== null && "detail" in payload
+        ? String((payload as { detail?: unknown }).detail || fallback)
+        : fallback
+      throw new Error(detail || "MEZO request failed")
+    }
+
+    return payload as T
   }
 
   status = () => this.request<ClusterStatus>("/api/status")
@@ -143,9 +169,15 @@ class Client {
   archiveUrl = (id: string) => `/api/tasks/${id}/archive`
 
   async stream(id: string, after: number, signal: AbortSignal, onEvent: (event: TaskEvent) => void): Promise<void> {
-    const response = await fetch(`/api/tasks/${id}/events?after=${after}`, { signal })
+    const path = `/api/tasks/${id}/events?after=${after}`
+    const response = await fetch(path, { signal })
+    const contentType = response.headers.get("content-type") || ""
+
+    if (!response.ok) throw new Error(`Stream failed: HTTP ${response.status}`)
+    if (contentType.includes("text/html")) throw apiProxyError(path)
+
     const reader = response.body?.getReader()
-    if (!response.ok || !reader) throw new Error(`Stream failed: HTTP ${response.status}`)
+    if (!reader) throw new Error("MEZO task stream is unavailable")
 
     const decoder = new TextDecoder()
     const emitted = new Set<number>()
