@@ -125,6 +125,18 @@ jobs:
           node-version: "22"
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
+      - name: Validate deployment PowerShell syntax
+        shell: pwsh
+        run: |
+          $scripts = @(
+            "mezo-deployment/deploy-nine-machine.ps1",
+            "mezo-deployment/update-control.ps1",
+            "mezo-deployment/fly-json.ps1"
+          )
+          foreach ($script in $scripts) {
+            [void][ScriptBlock]::Create((Get-Content $script -Raw))
+            Write-Host "VALID $script"
+          }
       - run: npm ci
       - name: Build Windows x64 EXE and installer
         run: npm run build --workspace=mezo-desktop
@@ -141,6 +153,8 @@ jobs:
     needs: [api, runner, router, frontend, desktop]
     steps:
       - uses: actions/checkout@v4
+      - name: Build combined Control image
+        run: docker build -f mezo-control/Dockerfile -t mezo-control:ci .
       - name: Build API image
         run: docker build -f mezo-control-plane/Dockerfile -t mezo-api:ci .
       - name: Build runner image
