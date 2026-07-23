@@ -35,7 +35,7 @@ it("opens directly into the MEZO workspace with no login", async () => {
   mockWorkspace()
   render(<App />)
 
-  expect(await screen.findByText("What should MEZO build?")).toBeTruthy()
+  expect(await screen.findByRole("heading", { level: 2, name: "What should MEZO build?" })).toBeTruthy()
   expect(screen.queryByText(/sign in|password|bootstrap/i)).toBeNull()
   expect(screen.getByRole("button", { name: "New chat" })).toBeTruthy()
   expect(screen.getByLabelText("MEZO mode")).toBeTruthy()
@@ -45,7 +45,7 @@ it("reveals a repository form from the projects section", async () => {
   mockWorkspace()
   render(<App />)
 
-  await screen.findByText("What should MEZO build?")
+  await screen.findByRole("heading", { level: 2, name: "What should MEZO build?" })
   fireEvent.click(screen.getByRole("button", { name: "Add project" }))
   expect(screen.getByLabelText("Repository URL")).toBeTruthy()
   expect(screen.getByText("Default branch")).toBeTruthy()
