@@ -88,11 +88,14 @@ export interface ClusterStatus {
   valkey: string
   github_configured: boolean
   configured_machine_count?: number
+  core_machine_count?: number
   max_machine_count?: number
   max_concurrent_tasks?: number
   machines: Machine[]
   router: {
+    reachable?: boolean
     healthy: boolean
+    error?: string
     models?: Record<string, ModelHealth>
   }
 }
@@ -116,6 +119,8 @@ function apiProxyError(path: string): Error {
 }
 
 class Client {
+  private dispatchInFlight = false
+
   private async request<T>(path: string, options?: RequestInit): Promise<T> {
     const response = await fetch(path, {
       ...options,
@@ -158,8 +163,22 @@ class Client {
   createConversation = (title = "New conversation") =>
     this.request<Conversation>("/api/conversations", { method: "POST", body: JSON.stringify({ title }) })
   messages = (id: string) => this.request<Message[]>(`/api/conversations/${id}/messages`)
-  dispatch = (input: { prompt: string; conversation_id?: string; project_id?: string; interaction?: Interaction; mode: Mode }) =>
-    this.request<DispatchResult>("/api/dispatch", { method: "POST", body: JSON.stringify(input) })
+
+  async dispatch(input: { prompt: string; conversation_id?: string; project_id?: string; interaction?: Interaction; mode: Mode }): Promise<DispatchResult> {
+    if (this.dispatchInFlight) {
+      throw new Error("MEZO is already processing a message")
+    }
+    this.dispatchInFlight = true
+    try {
+      return await this.request<DispatchResult>("/api/dispatch", {
+        method: "POST",
+        body: JSON.stringify(input),
+      })
+    } finally {
+      this.dispatchInFlight = false
+    }
+  }
+
   tasks = () => this.request<Task[]>("/api/tasks")
   task = (id: string) => this.request<Task>(`/api/tasks/${id}`)
   cancel = (id: string) => this.request<Task>(`/api/tasks/${id}/cancel`, { method: "POST" })
