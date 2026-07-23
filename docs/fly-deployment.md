@@ -1,111 +1,45 @@
-# Fly.io deployment and rollback
+# Fly cluster deployment
 
-The repository defines `mezo-api` and private `mezo-runner` applications. It does not provision a single-volume database. Use Fly Managed Postgres or another highly available PostgreSQL service and treat its connection string as a secret.
+Run from the repository root with cached Fly authentication for the `personal` organization:
 
-## Prerequisites
-
-- Fly organization, authenticated `flyctl`, and access to create Machines/volumes.
-- PostgreSQL 17-compatible database reachable by `mezo-api`.
-- GitHub App ID, installation ID, and PEM private key.
-- Kilo/model credential.
-- Strong independent JWT, audit HMAC, bootstrap, and runner-registration secrets.
-- Region quota for the requested `performance-16x` Machines and two 500 GB volumes; deployment acceptance must confirm that each allocated application Machine is CPU-only with 128 GB RAM.
-
-Do not put any value from this list in `fly.toml`, an image, a shell history shared with others, or source control.
-
-## Create applications and volumes
-
-From the repository root:
-
-```bash
-fly apps create mezo-api
-fly apps create mezo-runner
-
-fly volumes create mezo_api_data \
-  --app mezo-api \
-  --region ams \
-  --size 500
-
-fly volumes create mezo_runner_data \
-  --app mezo-runner \
-  --region ams \
-  --size 500
+```powershell
+powershell -ExecutionPolicy Bypass -File mezo-deployment/deploy-cluster.ps1 -Stage 1
+# run the Stage 1 acceptance test, then:
+powershell -ExecutionPolicy Bypass -File mezo-deployment/deploy-cluster.ps1 -Stage 2
+powershell -ExecutionPolicy Bypass -File mezo-deployment/deploy-cluster.ps1 -Stage 3
 ```
 
-Every API Machine requires its own 500 GB volume mounted at `/data`, and every runner Machine requires its own 500 GB volume mounted at `/workspaces`. A Fly volume is tied to one app, Machine, server, and region; it cannot be shared between Machines and volumes do not automatically replicate. Scaling either app requires another dedicated 500 GB volume for every new Machine. Keep max runner task concurrency at one per Machine.
+`-Stage all` performs the same sequence in one invocation. The script is idempotent: it checks app, volume, database, and Machine inventory, refuses conflicting volume sizes, and enforces a maximum of 20 MEZO application Machines.
 
-Managed Postgres remains independent from both application volumes. Do not store PostgreSQL files, secrets, private keys, Fly credentials, model credentials, JWT secrets, audit secrets, or runner-registration secrets on either application volume. The volumes are not database backups and do not provide high availability. Volume charges continue while Machines are stopped, and snapshots and network usage may add additional cost.
+## Persistent resources
 
-A single Machine with one local volume has host-level availability risk and will have downtime during deployment or host failure. Keep the `rolling` deployment strategy for attached volumes; do not use canary or blue-green deployment with these Machines.
+- Valkey: one encrypted 20 GB volume.
+- Indexer: one encrypted 100 GB volume.
+- Runners: four separate encrypted 500 GB volumes.
+- Qwen Coder: two separate encrypted 250 GB volumes.
+- GLM: two separate encrypted 300 GB volumes.
+- DeepSeek: two separate encrypted 200 GB volumes.
+- Vision: two separate encrypted 250 GB volumes.
+- Fast Qwen: two separate encrypted 100 GB volumes.
+- Embedding and reranker: one encrypted 100 GB volume each.
+- Managed Postgres: Launch plan, PostgreSQL 17, 100 GB.
 
-## Configure API secrets
+Fly volumes are host-local, cannot be shared between Machines, do not automatically replicate, and remain billable while Machines are stopped. Automatic snapshots and network usage add cost. Managed Postgres is independent and remains highly available according to the selected Fly plan.
 
-Generate secrets with a cryptographic random generator. Convert the GitHub PEM newlines in the manner accepted by `fly secrets set`; do not paste a private key into a committed file.
+## Secrets
 
-```bash
-fly secrets set --app mezo-api \
-  DATABASE_URL='postgresql+psycopg://...' \
-  JWT_SECRET='...' \
-  AUDIT_HMAC_KEY='...' \
-  MEZO_BOOTSTRAP_TOKEN='...' \
-  RUNNER_REGISTRATION_TOKEN='...' \
-  CORS_ALLOWED_ORIGINS='https://mezo-api.fly.dev' \
-  GITHUB_APP_ID='...' \
-  GITHUB_INSTALLATION_ID='...' \
-  GITHUB_APP_PRIVATE_KEY='...'
+The deployment script generates model, runner, orchestration, and Valkey credentials in memory and imports them over stdin. Values are never written to source files or printed. Managed Postgres attachment creates `DATABASE_URL` directly as a Fly secret. GitHub credentials are optional and absent from basic operation.
+
+## Access
+
+No app exposes public ports. Use `mezo web`, the desktop client, or:
+
+```powershell
+fly proxy 8787:8080 --app mezo-web --bind-addr 127.0.0.1
 ```
 
-Configure Gemini/local provider secrets on the API only if that provider route is used. The Kilo credential belongs on the runner, not the API, unless the same provider is deliberately used in both places.
+Then open `http://127.0.0.1:8787`. Public unauthenticated command execution is impossible without membership in the Fly organization and its WireGuard tunnel.
 
-```bash
-fly secrets set --app mezo-runner \
-  RUNNER_REGISTRATION_TOKEN='same registration secret as API' \
-  KILOCODE_API_KEY='...' \
-  KILO_MODEL='explicit-model-id'
-```
+## Rollback
 
-After the first successful registration, rotate or remove the registration secret only after ensuring the runner identity file persists. Keep a recovery procedure for deliberately re-registering a runner name.
-
-## Validate and deploy
-
-```bash
-fly config validate --config mezo-deployment/fly/mezo-api.toml
-fly config validate --config mezo-deployment/fly/mezo-runner.toml
-
-fly deploy --config mezo-deployment/fly/mezo-api.toml --remote-only
-fly deploy --config mezo-deployment/fly/mezo-runner.toml --remote-only
-```
-
-The API release command runs `python /app/database/migrate.py up` under a PostgreSQL advisory lock. A failed migration prevents rollout. The runner has no public service section and calls `http://mezo-api.internal:8080` on Fly private networking.
-
-## Post-deployment checks
-
-1. `GET https://mezo-api.fly.dev/healthz` returns database `available`.
-2. Bootstrap the first owner once, then rotate/remove the bootstrap secret.
-3. Authorize only the intended GitHub App installation repository.
-4. Confirm `/api/runners` shows a recent real heartbeat and actual disk bytes.
-5. Disarm/arm the kill switch as owner and verify a non-owner receives 403.
-6. Submit a read/validation task before any mutation task.
-7. Restart the API during a queued or waiting task and verify the task remains.
-8. Run the required `DeadZone_xiaomi-Lite` task, inspect every command/diff/guard result, approve the exact diff, then separately request Draft PR creation.
-9. Confirm GitHub shows a Draft and no merge occurred.
-
-## Graceful shutdown and recovery
-
-Fly sends SIGTERM. The API has a 30-second kill timeout. The runner has 60 seconds, cancels the process group, and relies on durable lease recovery if interrupted. A runner restart deletes stale task workspaces; the API requeues the task only after its lease expires.
-
-## Application rollback
-
-List releases and redeploy a previously known image/revision according to current Fly CLI capabilities. Do not roll application code back across an incompatible database schema.
-
-For migration `001_agent_mvp`, the down migration drops all Phase 1 data and is destructive. It exists for empty/test rollback only:
-
-```bash
-python mezo-database/migrate.py down --version 001_agent_mvp
-```
-
-For production rollback, prefer forward-fixing code and schema. Before any schema rollback, disarm leases, stop the runner, take a verified database backup, confirm the target release compatibility, and obtain explicit owner authorization. Never treat the runner volume as a database backup.
-
-## Deployment status
-
-The configuration is committed but has not been validated by `flyctl` or deployed from the current development environment, because Fly CLI/credentials are unavailable here. The acceptance report must be updated with real release IDs, health output, restart evidence, and runner volume size after deployment.
+Roll back application releases with `fly releases` and `fly deploy --image ...` without deleting volumes. Do not delete or shrink model/workspace volumes during application rollback. Database schema changes must remain backward compatible until every service is confirmed healthy.

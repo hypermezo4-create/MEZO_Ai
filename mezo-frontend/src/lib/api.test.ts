@@ -1,34 +1,61 @@
-import { describe, expect, it, vi } from "vitest"
-import { MezoApi } from "./api"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { api } from "./api"
 
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
-describe("MezoApi", () => {
-  it("sends the verified bearer token and preserves real runner data without fallback values", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify([
-      { id: "runner-1", name: "fly-1", status: "offline", version: "1", current_task_id: null, last_heartbeat_at: "2026-01-01", disk_total_bytes: null, disk_free_bytes: null, capabilities: {} },
-    ]), { status: 200, headers: { "Content-Type": "application/json" } }))
+describe("cluster API", () => {
+  it("does not send a MEZO login token", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify([]), { status: 200 }))
     vi.stubGlobal("fetch", fetchMock)
-    const api = new MezoApi("https://mezo.example")
-    api.setToken("verified-token")
-    const runners = await api.runners()
-    expect(runners[0].status).toBe("offline")
-    expect(runners[0].disk_total_bytes).toBeNull()
-    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe("Bearer verified-token")
+    await api.projects()
+    const headers = fetchMock.mock.calls[0][1]?.headers as Record<string, string>
+    expect(headers.Authorization).toBeUndefined()
   })
 
-  it("renders task SSE frames as structured events", async () => {
+  it("reports an inactive development proxy instead of parsing HTML as JSON", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("<!doctype html><html></html>", {
+      status: 200,
+      headers: { "Content-Type": "text/html" },
+    })))
+
+    await expect(api.status()).rejects.toThrow("MEZO API proxy is not active")
+  })
+
+  it("rejects overlapping dispatch requests", async () => {
+    let finishRequest: ((response: Response) => void) | undefined
+    const pending = new Promise<Response>(resolve => { finishRequest = resolve })
+    vi.stubGlobal("fetch", vi.fn().mockReturnValue(pending))
+
+    const first = api.dispatch({ prompt: "first", mode: "fast" })
+    await expect(api.dispatch({ prompt: "second", mode: "fast" }))
+      .rejects.toThrow("already processing")
+
+    finishRequest?.(new Response(JSON.stringify({
+      kind: "chat",
+      interaction: "chat",
+      conversation_id: "conversation",
+      message: { id: 1, role: "assistant", content: "done", created_at: "now" },
+      task: null,
+    }), { status: 201 }))
+    await expect(first).resolves.toMatchObject({ conversation_id: "conversation" })
+  })
+
+  it("parses streamed runner events once even when a frame is repeated", async () => {
+    const frame = 'id: 1\ndata: {"id":1,"event_type":"stdout","payload":{"message":"ok"},"created_at":"now"}\n\n'
     const body = new ReadableStream({
       start(controller) {
-        controller.enqueue(new TextEncoder().encode('id: 4\nevent: stdout\ndata: {"id":4,"type":"stdout","stream":"stdout","timestamp":"2026-01-01T00:00:00Z","payload":{"message":"tests passed"}}\n\n'))
+        controller.enqueue(new TextEncoder().encode(frame + frame))
         controller.close()
       },
     })
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, { status: 200 })))
-    const api = new MezoApi()
-    api.setToken("token")
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    })))
     const events: unknown[] = []
-    await api.streamTask("task-1", 0, new AbortController().signal, event => events.push(event))
+    await api.stream("task", 0, new AbortController().signal, event => events.push(event))
     expect(events).toHaveLength(1)
-    expect((events[0] as { payload: { message: string } }).payload.message).toBe("tests passed")
   })
 })

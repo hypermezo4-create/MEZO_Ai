@@ -1,66 +1,43 @@
 # MEZO AI
 
-MEZO AI is a remote software-development agent control plane. The Phase 1 implementation accepts an authorized-repository task, persists it in PostgreSQL, leases it to one isolated Fly.io runner, streams command evidence to the web client, and stops at an exact-diff approval gate before any branch push or Draft Pull Request.
+MEZO is an Apache-2.0, single-user coding agent whose inference, indexing, conversations, and isolated workspaces run on a private Fly.io CPU cluster. The local computer is only a terminal, desktop, and browser client. No MEZO login or paid model API is used.
 
-The production topology has two applications:
+## Components
 
-- `mezo-api`: FastAPI control plane, provider routing, PostgreSQL persistence, audit chain, and the built React interface.
-- `mezo-runner`: single-task worker with Kilo CLI, validation tools, and pinned guard skills.
+- `mezo-control-plane`: private web/API with PostgreSQL conversations and task state.
+- `mezo-router`: specialist routing, parallel review, timeouts, and circuit breakers.
+- `mezo-queue`: private Valkey task coordination and cancellation.
+- `mezo-indexer`: repository maps, embeddings, and reranking.
+- `mezo-runner`: four bubblewrap-isolated coding workers.
+- `mezo-model-server`: checksum-pinned CPU `llama.cpp` model services.
+- `mezo-frontend`: ChatGPT-style task, terminal, file, and diff interface.
+- `mezo-cli` and `mezo-desktop`: auto-reconnecting private Fly tunnel clients.
 
-The removed Node backend, standalone fake AI engine, and in-memory orchestrator are not production alternatives.
-
-## Local verification
-
-Prerequisites are Python 3.12, Node.js 22, PostgreSQL 17, and optionally Docker.
+## Build and test
 
 ```bash
-python -m venv .venv
-. .venv/bin/activate
-pip install -r mezo-control-plane/requirements-dev.txt
+python -m pip install -r mezo-control-plane/requirements-dev.txt
+python -m pip install -r mezo-runner/requirements.txt pytest-asyncio
 npm ci
-
-export MEZO_TESTING=1 MEZO_ENV=test
-export DATABASE_URL=sqlite+pysqlite:////tmp/mezo-api-tests.sqlite
-export JWT_SECRET=test-jwt-secret-that-is-at-least-32-bytes
-export AUDIT_HMAC_KEY=test-audit-hmac-key-that-is-long-enough
-export MEZO_BOOTSTRAP_TOKEN=test-bootstrap-token
-export RUNNER_REGISTRATION_TOKEN=test-runner-registration-token
-
-PYTHONPATH=mezo-control-plane python -m pytest -q mezo-control-plane/tests
-PYTHONPATH=mezo-runner python -m pytest -q mezo-runner/tests
+python -m compileall -q mezo-control-plane mezo-router mezo-indexer mezo-runner mezo-model-server
+python -m pytest mezo-control-plane/tests
+python -m pytest mezo-runner/tests
 npm run typecheck --workspace=mezo-frontend
-npm run test --workspace=mezo-frontend -- --run
+npm test --workspace=mezo-frontend
 npm run build --workspace=mezo-frontend
+cargo check --manifest-path mezo-desktop/src-tauri/Cargo.toml
 ```
 
-SQLite is permitted only by the test configuration. Production startup fails unless `DATABASE_URL` is PostgreSQL.
+Build every container from the repository root using the corresponding Dockerfile. Model downloads occur only at runtime onto encrypted Fly volumes and are verified against the manifests.
 
-## Local PostgreSQL stack
+## Private clients
 
-Copy `.env.example` to a non-committed environment file, replace every `replace-*` value, then run:
+Install the Windows terminal command with `powershell -File mezo-cli/install.ps1`, then use `mezo`, `mezo web`, `mezo chat`, `mezo run "task"`, or `mezo doctor`. The client invokes `fly proxy` against `mezo-web` and binds only `127.0.0.1:8787`.
 
-```bash
-docker compose -f mezo-deployment/docker/docker-compose.yml up --build postgres api
-```
+Build the desktop application with `npm run build --workspace=mezo-desktop`. It starts the same private tunnel and opens the local UI without credentials.
 
-Add `--profile runner runner` only after configuring a Kilo credential. The first owner is created once through `/api/auth/bootstrap` with the bootstrap token. Authorize repositories through `POST /api/repositories`; arbitrary client identity headers are not accepted.
+## Deployment
 
-## Documentation
+`mezo-deployment/deploy-cluster.ps1` implements the authorized three-stage, idempotent deployment. It creates no public IPs, generates internal credentials without printing them, creates exactly the documented volumes, and fails if the MEZO application Machine count would exceed 20.
 
-- [Architecture](docs/architecture.md)
-- [Security model and threat model](docs/security-model.md)
-- [Runner](docs/runner.md)
-- [Task lifecycle](docs/task-lifecycle.md)
-- [Permissions](docs/permissions.md)
-- [Fly.io deployment and rollback](docs/fly-deployment.md)
-- [GitHub App](docs/github-app.md)
-- [Troubleshooting](docs/troubleshooting.md)
-- [Phase 1 acceptance report](docs/phase-1-acceptance-report.md)
-
-## Safety boundary
-
-MEZO never merges Pull Requests. A branch push and Draft Pull Request require a current approval for the stored diff hash and validated commit SHA. GitHub’s branch ref is checked against that approved SHA immediately before PR creation. Tier 4 actions—merge, force-push, production deployment, infrastructure mutation, secret rotation, and destructive external changes—are not implemented.
-
-## Current delivery status
-
-Source and local automated validation are implemented. A real Fly deployment, a Kilo run against `hypermezo4-create/DeadZone_xiaomi-Lite`, and the resulting Draft Pull Request require deployment/GitHub App/Kilo credentials plus explicit approval. See the acceptance report; this repository does not claim Phase 1 complete before that evidence exists.
+See [cluster architecture](docs/cluster-architecture.md), [deployment](docs/fly-deployment.md), and [third-party licenses](THIRD_PARTY_LICENSES.md).

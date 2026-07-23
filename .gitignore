@@ -14,6 +14,7 @@ __pycache__/
 .env.*.local
 *.env
 !.env.example
+*.private-key.pem
 
 # Build outputs & caches
 dist/

@@ -1,124 +1,233 @@
-export interface Repository { id: string; full_name: string; default_branch: string; active: boolean }
-export interface Project { id: string; name: string; repository_id: string; owner_id: string }
-export interface Runner { id: string; name: string; status: string; version: string; current_task_id: string | null; last_heartbeat_at: string; disk_total_bytes: number | null; disk_free_bytes: number | null; capabilities: Record<string, unknown> }
-export interface TaskStep { id: string; step_index: number; name: string; description: string; status: string; started_at: string | null; finished_at: string | null; command: string | null; exit_code: number | null; result_summary: string | null; error: string | null; requires_approval: boolean }
+export type Mode = "auto" | "fast" | "coding" | "deep" | "vision" | "multi"
+export type Interaction = "auto" | "chat" | "agent"
+
+export interface Project {
+  id: string
+  name: string
+  repository_url: string
+  default_branch: string
+}
+
+export interface Conversation {
+  id: string
+  title: string
+  created_at: string
+  updated_at: string
+}
+
+export interface Message {
+  id: number
+  role: "user" | "assistant" | "system" | "tool"
+  content: string
+  created_at: string
+}
+
+export interface ChangedFile {
+  path: string
+  status?: string
+}
+
 export interface Task {
-  id: string; user_id: string; repository: string; base_branch: string; working_branch: string; title: string;
-  description: string; status: string; current_step: string | null; created_at: string; started_at: string | null;
-  finished_at: string | null; runner_id: string | null; workspace_id: string | null; error: string | null;
-  approval_state: string; pull_request_url: string | null; changed_files: ChangedFile[]; diff_text: string | null;
-  diff_hash: string | null; validation_report: ValidationReport; steps: TaskStep[];
-}
-export interface ChangedFile { path: string; additions: number | null; deletions: number | null }
-export interface ValidationItem { command?: string; name?: string; status?: string; exit_code: number; duration_ms?: number; summary?: string; phase?: string }
-export interface ValidationReport { commands?: ValidationItem[]; tests?: ValidationItem[]; guards?: ValidationItem[]; known_risks?: string[]; diff_summary?: { files: number; additions: number; deletions: number } }
-export interface ApprovalRequest {
-  repository: string
-  base_branch: string
-  working_branch: string
+  id: string
+  conversation_id: string
+  project_id: string
+  prompt: string
+  mode: Mode
+  status: string
   changed_files: ChangedFile[]
-  diff_hash: string
-  commit_sha: string
-  diff_summary: { files: number; additions: number; deletions: number }
-  commands: ValidationItem[]
-  tests: ValidationItem[]
-  guards: ValidationItem[]
-  known_risks: string[]
-  pull_request_title: string
-  pull_request_body: string
+  diff_text: string
+  error: string | null
+  decision: string | null
+  reviewer_chain: string[]
+  created_at: string
+  started_at?: string | null
+  finished_at?: string | null
+  runner_id: string | null
 }
-export interface Approval { id: string; task_id: string; diff_hash: string; action: string; state: string; expires_at: string; request: ApprovalRequest }
-export interface TaskEvent { id: number; type: string; stream: string | null; timestamp: string; payload: Record<string, unknown> }
 
-type Method = "GET" | "POST" | "PUT" | "DELETE"
+export interface DispatchResult {
+  kind: "chat" | "agent"
+  interaction: "chat" | "agent"
+  conversation_id: string
+  message: Message
+  task: Task | null
+}
 
-export class MezoApiError extends Error {
-  constructor(message: string, readonly status: number) {
-    super(message)
-    this.name = "MezoApiError"
+export interface Machine {
+  slot_id: string
+  machine_id: string | null
+  role: string
+  app: string
+  region: string
+  size: string
+  memory_mb: number
+  status: string
+  metadata?: Record<string, unknown>
+  last_heartbeat_at?: string
+}
+
+export interface ModelReplica {
+  endpoint: string
+  healthy: boolean
+  error?: string
+}
+
+export interface ModelHealth {
+  healthy: boolean
+  configured?: boolean
+  label?: string
+  purpose?: string
+  latency_ms?: number
+  circuit_open?: boolean
+  replicas?: ModelReplica[]
+}
+
+export interface ClusterStatus {
+  api: string
+  database: string
+  valkey: string
+  github_configured: boolean
+  configured_machine_count?: number
+  core_machine_count?: number
+  max_machine_count?: number
+  max_concurrent_tasks?: number
+  machines: Machine[]
+  router: {
+    reachable?: boolean
+    healthy: boolean
+    error?: string
+    models?: Record<string, ModelHealth>
   }
 }
 
-export class MezoApi {
-  readonly baseUrl: string
-  private token = ""
+export interface TaskEvent {
+  id: number
+  event_type: string
+  payload: Record<string, unknown>
+  created_at: string
+}
 
-  constructor(baseUrl = import.meta.env.VITE_MEZO_API_URL || "") {
-    this.baseUrl = baseUrl.replace(/\/$/, "")
-  }
+function isHtml(value: string): boolean {
+  const normalized = value.trimStart().toLowerCase()
+  return normalized.startsWith("<!doctype html") || normalized.startsWith("<html")
+}
 
-  setToken(token: string) { this.token = token }
+function apiProxyError(path: string): Error {
+  return new Error(
+    `MEZO API proxy is not active for ${path}. Stop the web server, keep fly proxy on port 8787 running, then start npm run dev:web again.`,
+  )
+}
 
-  private async request<T>(path: string, method: Method = "GET", body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      method,
+class Client {
+  private dispatchInFlight = false
+
+  private async request<T>(path: string, options?: RequestInit): Promise<T> {
+    const response = await fetch(path, {
+      ...options,
       headers: {
         "Content-Type": "application/json",
-        ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
-        ...extraHeaders,
+        ...options?.headers,
       },
-      body: body === undefined ? undefined : JSON.stringify(body),
     })
-    if (!response.ok) {
-      let message = `${response.status} ${response.statusText}`
-      try { message = (await response.json()).detail || message } catch { /* response was not JSON */ }
-      throw new MezoApiError(message, response.status)
+
+    if (response.status === 204) return undefined as T
+
+    const raw = await response.text()
+    if (isHtml(raw)) throw apiProxyError(path)
+
+    let payload: unknown = null
+    if (raw) {
+      try {
+        payload = JSON.parse(raw)
+      } catch {
+        throw new Error(`MEZO API returned an invalid response for ${path}`)
+      }
     }
-    return response.json() as Promise<T>
+
+    if (!response.ok) {
+      const fallback = `${response.status} ${response.statusText}`.trim()
+      const detail = typeof payload === "object" && payload !== null && "detail" in payload
+        ? String((payload as { detail?: unknown }).detail || fallback)
+        : fallback
+      throw new Error(detail || "MEZO request failed")
+    }
+
+    return payload as T
   }
 
-  async login(email: string, password: string) {
-    const result = await this.request<{ access_token: string; expires_in: number }>("/api/auth/login", "POST", { email, password })
-    this.setToken(result.access_token)
-    return result
-  }
-
-  async bootstrap(email: string, password: string, bootstrapToken: string) {
-    const result = await this.request<{ access_token: string; expires_in: number }>(
-      "/api/auth/bootstrap", "POST", { email, password }, { "X-MEZO-Bootstrap-Token": bootstrapToken },
-    )
-    this.setToken(result.access_token)
-    return result
-  }
-
-  repositories = () => this.request<Repository[]>("/api/repositories")
+  status = () => this.request<ClusterStatus>("/api/status")
   projects = () => this.request<Project[]>("/api/projects")
+  createProject = (input: { name: string; repository_url: string; default_branch: string }) =>
+    this.request<Project>("/api/projects", { method: "POST", body: JSON.stringify(input) })
+  conversations = () => this.request<Conversation[]>("/api/conversations")
+  createConversation = (title = "New conversation") =>
+    this.request<Conversation>("/api/conversations", { method: "POST", body: JSON.stringify({ title }) })
+  messages = (id: string) => this.request<Message[]>(`/api/conversations/${id}/messages`)
+
+  async dispatch(input: { prompt: string; conversation_id?: string; project_id?: string; interaction?: Interaction; mode: Mode }): Promise<DispatchResult> {
+    if (this.dispatchInFlight) {
+      throw new Error("MEZO is already processing a message")
+    }
+    this.dispatchInFlight = true
+    try {
+      return await this.request<DispatchResult>("/api/dispatch", {
+        method: "POST",
+        body: JSON.stringify(input),
+      })
+    } finally {
+      this.dispatchInFlight = false
+    }
+  }
+
   tasks = () => this.request<Task[]>("/api/tasks")
   task = (id: string) => this.request<Task>(`/api/tasks/${id}`)
-  runners = () => this.request<Runner[]>("/api/runners")
-  audit = (taskId?: string) => this.request<{ integrity_valid: boolean; records: unknown[] }>(`/api/audit${taskId ? `?task_id=${encodeURIComponent(taskId)}` : ""}`)
-  cancelTask = (id: string) => this.request<Task>(`/api/tasks/${id}/cancel`, "POST")
-  approval = (id: string) => this.request<Approval>(`/api/tasks/${id}/approval`)
-  decideApproval = (id: string, decision: "approve" | "reject") => this.request<{ state: string; diff_hash: string }>(`/api/tasks/${id}/approval`, "POST", { decision })
-  createDraftPullRequest = (id: string) => this.request<{ status: string }>(`/api/tasks/${id}/pull-request`, "POST")
+  cancel = (id: string) => this.request<Task>(`/api/tasks/${id}/cancel`, { method: "POST" })
+  decide = (id: string, value: "accept" | "reject") =>
+    this.request<Task>(`/api/tasks/${id}/decision?value=${value}`, { method: "POST" })
+  patchUrl = (id: string) => `/api/tasks/${id}/patch`
+  archiveUrl = (id: string) => `/api/tasks/${id}/archive`
 
-  createTask(input: { repository_id: string; project_id?: string; base_branch?: string; title: string; description: string }) {
-    return this.request<Task>("/api/tasks", "POST", input)
-  }
+  async stream(id: string, after: number, signal: AbortSignal, onEvent: (event: TaskEvent) => void): Promise<void> {
+    const path = `/api/tasks/${id}/events?after=${after}`
+    const response = await fetch(path, { signal })
+    const contentType = response.headers.get("content-type") || ""
 
-  async streamTask(id: string, after: number, signal: AbortSignal, onEvent: (event: TaskEvent) => void): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/api/tasks/${id}/events?after=${after}`, {
-      headers: { Authorization: `Bearer ${this.token}` },
-      signal,
-    })
-    if (!response.ok || !response.body) throw new Error(`Task stream failed with HTTP ${response.status}`)
-    const reader = response.body.getReader()
+    if (!response.ok) throw new Error(`Stream failed: HTTP ${response.status}`)
+    if (contentType.includes("text/html")) throw apiProxyError(path)
+
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error("MEZO task stream is unavailable")
+
     const decoder = new TextDecoder()
+    const emitted = new Set<number>()
     let buffer = ""
+
+    const emitFrame = (frame: string) => {
+      const line = frame.split(/\r?\n/).find(item => item.startsWith("data: "))
+      if (!line) return
+      try {
+        const event = JSON.parse(line.slice(6)) as TaskEvent
+        if (!event.id || event.id <= after || emitted.has(event.id)) return
+        emitted.add(event.id)
+        onEvent(event)
+      } catch {
+        // Ignore one malformed frame without dropping the live stream.
+      }
+    }
+
     while (true) {
       const { value, done } = await reader.read()
       buffer += decoder.decode(value, { stream: !done })
       const frames = buffer.split(/\r?\n\r?\n/)
       buffer = frames.pop() || ""
-      for (const frame of frames) {
-        const line = frame.split(/\r?\n/).find((item) => item.startsWith("data: "))
-        if (!line) continue
-        try {
-          const parsed = JSON.parse(line.slice(6))
-          if (parsed.id) onEvent(parsed as TaskEvent)
-        } catch { /* malformed server event is ignored; the stream remains live */ }
+      frames.forEach(emitFrame)
+
+      if (done) {
+        if (buffer.trim()) emitFrame(buffer)
+        return
       }
-      if (done) return
     }
   }
 }
+
+export const api = new Client()

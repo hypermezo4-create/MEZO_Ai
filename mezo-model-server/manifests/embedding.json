@@ -1,0 +1,15 @@
+{
+  "model": "Qwen/Qwen3-Embedding-8B",
+  "source_revision": "1d8ad4ca9b3dd8059ad90a75d4983776a23d44af",
+  "repo": "Qwen/Qwen3-Embedding-8B-GGUF",
+  "revision": "69d0e58a13e463cd99a9b83e3f5fee7c10265fab",
+  "license": "Apache-2.0",
+  "quantization": "Q4_K_M",
+  "context": 8192,
+  "embedding": true,
+  "pooling": "last",
+  "jinja": false,
+  "files": [
+    {"path": "Qwen3-Embedding-8B-Q4_K_M.gguf", "sha256": "3fcd3febec8b3fd64435204db75bf0dd73b91e8d0661e0331acfe7e7c3120b85"}
+  ]
+}

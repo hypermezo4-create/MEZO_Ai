@@ -4,7 +4,9 @@ import asyncio
 import logging
 import os
 import re
+import shutil
 import signal
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,7 +38,7 @@ logger = logging.getLogger("mezo.runner.command")
 class CommandRunner:
     ALLOWED_EXECUTABLES = {
         "git", "kilo", "npm", "npx", "node", "python", "python3", "pytest", "ruff", "mypy",
-        "shellcheck", "make", "cmake", "pip", "pip3",
+        "shellcheck", "make", "cmake", "pip", "pip3", "rg",
     }
     FORBIDDEN_GIT = {"push", "fetch-pack", "receive-pack", "update-ref", "replace", "notes"}
     FORBIDDEN_ARGUMENTS = {"--force", "--force-with-lease", "-f", "--hard"}
@@ -106,6 +108,7 @@ class CommandRunner:
         env: dict[str, str] | None,
     ) -> CommandResult:
         display = " ".join(redact(part) for part in argv)
+        execution_argv = [sys.executable, *argv[1:]] if os.name == "nt" and argv[0] in {"python", "python3"} else argv
         await self.event_sink({"event_type": "command_start", "timestamp": _now(), "working_directory": str(resolved_cwd), "command": display})
         started = time.monotonic()
         process_env = {
@@ -118,15 +121,25 @@ class CommandRunner:
             **(env or {}),
         }
         child_setup = None
-        if os.geteuid() == 0 and self.workspace.task_uid != 0:
+        if os.name == "posix" and os.geteuid() == 0 and self.workspace.task_uid != 0:
             def child_setup() -> None:
                 os.setgroups([])
                 os.setgid(self.workspace.task_gid)
                 os.setuid(self.workspace.task_uid)
                 os.umask(0o077)
 
+        isolated_argv = execution_argv
+        use_bwrap = os.getenv("MEZO_USE_BWRAP", "1").lower() not in {"0", "false", "no"}
+        if use_bwrap and shutil.which("bwrap") and os.name == "posix":
+            isolated_argv = [
+                "bwrap", "--die-with-parent", "--new-session", "--unshare-user", "--unshare-pid", "--unshare-ipc", "--unshare-uts",
+                "--ro-bind", "/", "/", "--bind", str(self.workspace.task_root), str(self.workspace.task_root),
+                "--tmpfs", "/tmp", "--proc", "/proc", "--dev", "/dev", "--chdir", str(resolved_cwd),
+                # bwrap runs as the host task user, mapped to root only inside the user namespace.
+                "--uid", "0", "--gid", "0", "--", *execution_argv,
+            ]
         self.current_process = await asyncio.create_subprocess_exec(
-            *argv,
+            *isolated_argv,
             cwd=resolved_cwd,
             env=process_env,
             stdout=asyncio.subprocess.PIPE,
@@ -189,6 +202,16 @@ class CommandRunner:
     async def _terminate_tree(self) -> None:
         process = self.current_process
         if process is None:
+            return
+        if os.name == "nt":
+            if process.returncode is None:
+                try:
+                    process.terminate()
+                    await asyncio.wait_for(process.wait(), timeout=5)
+                except (ProcessLookupError, asyncio.TimeoutError):
+                    if process.returncode is None:
+                        process.kill()
+                        await process.wait()
             return
         try:
             os.killpg(process.pid, signal.SIGTERM)

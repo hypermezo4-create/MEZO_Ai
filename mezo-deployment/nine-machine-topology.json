@@ -1,0 +1,25 @@
+{
+  "app": "mezo-ai",
+  "organization": "personal",
+  "region": "ord",
+  "machine_count": 9,
+  "machine": {
+    "size": "performance-16x",
+    "cpu_kind": "performance",
+    "cpus": 16,
+    "memory_mb": 131072,
+    "volume_size_gb": 500,
+    "restart": "always"
+  },
+  "roles": [
+    {"role":"control","dockerfile":"mezo-control/Dockerfile","volume":"mezo_control_data","mount":"/data","ports":[8080,8081,8082,6379]},
+    {"role":"utility","dockerfile":"mezo-utility/Dockerfile","volume":"mezo_utility_models","mount":"/models","ports":[8101,8102,8103]},
+    {"role":"coder-1","dockerfile":"mezo-model-server/Dockerfile","volume":"mezo_coder_1_models","mount":"/models","port":8080,"manifest":"qwen-coder"},
+    {"role":"runner-1","dockerfile":"mezo-runner/Dockerfile","volume":"mezo_runner_1_workspaces","mount":"/workspaces"},
+    {"role":"coder-2","dockerfile":"mezo-model-server/Dockerfile","volume":"mezo_coder_2_models","mount":"/models","port":8080,"manifest":"qwen-coder"},
+    {"role":"runner-2","dockerfile":"mezo-runner/Dockerfile","volume":"mezo_runner_2_workspaces","mount":"/workspaces"},
+    {"role":"reasoning","dockerfile":"mezo-model-server/Dockerfile","volume":"mezo_reasoning_models","mount":"/models","port":8080,"manifest":"glm"},
+    {"role":"reviewer","dockerfile":"mezo-model-server/Dockerfile","volume":"mezo_reviewer_models","mount":"/models","port":8080,"manifest":"deepseek"},
+    {"role":"vision","dockerfile":"mezo-model-server/Dockerfile","volume":"mezo_vision_models","mount":"/models","port":8080,"manifest":"vision"}
+  ]
+}

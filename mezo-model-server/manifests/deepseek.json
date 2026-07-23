@@ -1,0 +1,12 @@
+{
+  "model": "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
+  "source_revision": "711ad2ea6aa40cfca18895e8aca02ab92df1a746",
+  "repo": "bartowski/DeepSeek-R1-Distill-Qwen-32B-GGUF",
+  "revision": "1dc8cf9ffa5dd333057ea1b09ccf4772d8726dec",
+  "license": "MIT",
+  "quantization": "Q4_K_M",
+  "context": 32768,
+  "files": [
+    {"path": "DeepSeek-R1-Distill-Qwen-32B-Q4_K_M.gguf", "sha256": "bed9b0f551f5b95bf9da5888a48f0f87c37ad6b72519c4cbd775f54ac0b9fc62"}
+  ]
+}

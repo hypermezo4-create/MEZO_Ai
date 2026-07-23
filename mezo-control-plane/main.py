@@ -1,102 +1,92 @@
 from __future__ import annotations
 
-import json
 import logging
 import os
-import sys
-import time
-import uuid
+from json import JSONDecodeError
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError
-
-sys.path.insert(0, os.path.dirname(__file__))
-
-from src.api import router
-from src.config import get_settings
-from src.database import SessionLocal
 
 
-class JsonFormatter(logging.Formatter):
-    def format(self, record: logging.LogRecord) -> str:
-        payload = {
-            "timestamp": self.formatTime(record, "%Y-%m-%dT%H:%M:%SZ"),
-            "level": record.levelname.lower(),
-            "logger": record.name,
-            "message": record.getMessage(),
-        }
-        for name in (
-            "request_id", "task_id", "runner_id", "duration_ms", "queue_latency_ms",
-            "task_duration_ms", "failure_category",
-        ):
-            value = getattr(record, name, None)
-            if value is not None:
-                payload[name] = value
-        return json.dumps(payload, separators=(",", ":"))
+logger = logging.getLogger("mezo.control")
+legacy = os.getenv("MEZO_LEGACY_MODE", "").lower() in {"1", "true", "yes"}
+app = FastAPI(title="MEZO AI", version="2.2.0", docs_url=None, redoc_url=None)
 
 
-handler = logging.StreamHandler()
-handler.setFormatter(JsonFormatter())
-logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), handlers=[handler], force=True)
-logger = logging.getLogger("mezo.api")
-settings = get_settings()
-
-app = FastAPI(title="MEZO AI API", version="1.0.0", docs_url="/docs" if not settings.production else None)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=list(settings.cors_origins),
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Request-ID", "X-MEZO-Bootstrap-Token", "X-Runner-Registration-Token"],
-    expose_headers=["X-Request-ID"],
-)
-app.include_router(router)
-
-
-@app.middleware("http")
-async def request_context(request: Request, call_next):
-    started = time.monotonic()
-    incoming = request.headers.get("x-request-id", "")
-    request_id = incoming if incoming and len(incoming) <= 64 else str(uuid.uuid4())
-    request.state.request_id = request_id
-    try:
-        response = await call_next(request)
-    except Exception:
-        logger.exception(
-            "unhandled request error",
-            extra={"request_id": request_id, "failure_category": "unhandled_exception"},
-        )
-        raise
-    response.headers["X-Request-ID"] = request_id
-    logger.info(
-        "%s %s %s",
-        request.method,
-        request.url.path,
-        response.status_code,
-        extra={"request_id": request_id, "duration_ms": round((time.monotonic() - started) * 1000)},
+@app.exception_handler(JSONDecodeError)
+async def malformed_upstream_response(request: Request, exc: JSONDecodeError) -> JSONResponse:
+    logger.exception("MEZO received malformed JSON while serving %s", request.url.path)
+    return JSONResponse(
+        {
+            "detail": "MEZO router returned a non-JSON response",
+            "error_type": type(exc).__name__,
+        },
+        status_code=502,
     )
-    return response
 
 
-@app.get("/healthz")
-def health():
-    try:
-        with SessionLocal() as db:
-            db.execute(text("SELECT 1"))
-    except SQLAlchemyError:
-        return JSONResponse(status_code=503, content={"status": "unhealthy", "database": "unavailable"})
-    return {"status": "ok", "database": "available", "service": "mezo-api", "version": app.version}
+@app.exception_handler(Exception)
+async def unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception("Unhandled MEZO error while serving %s", request.url.path)
+    return JSONResponse(
+        {
+            "detail": f"MEZO internal error: {type(exc).__name__}",
+            "error_type": type(exc).__name__,
+        },
+        status_code=500,
+    )
 
 
-frontend_dist = Path(os.getenv("MEZO_FRONTEND_DIST", "/app/frontend"))
-if frontend_dist.is_dir():
-    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
+if legacy:
+    from sqlalchemy import text
+    from sqlalchemy.exc import SQLAlchemyError
+    from src.api import router
+    from src.database import SessionLocal
+
+    app.include_router(router)
+
+    @app.get("/healthz", response_model=None)
+    def health():
+        try:
+            with SessionLocal() as db:
+                db.execute(text("SELECT 1"))
+        except SQLAlchemyError:
+            return JSONResponse({"status": "unhealthy"}, status_code=503)
+        return {"status": "ok", "mode": "legacy-test-only"}
 else:
-    @app.get("/")
-    def root():
-        return {"service": "mezo-api", "version": app.version}
+    from src.open_source_api import router as open_source_router
+    from src.open_source_db import database
+    from src.runtime_api import router as runtime_router
+
+    overridden_routes = {
+        ("/api/status", "GET"),
+        ("/api/conversations", "GET"),
+        ("/api/dispatch", "POST"),
+        ("/api/projects", "GET"),
+        ("/api/projects", "POST"),
+    }
+
+    def keep_route(route: object) -> bool:
+        path = str(getattr(route, "path", ""))
+        methods = set(getattr(route, "methods", set()) or set())
+        return not any((path, method) in overridden_routes for method in methods)
+
+    open_source_router.routes[:] = [route for route in open_source_router.routes if keep_route(route)]
+
+    database.migrate()
+    app.include_router(runtime_router)
+    app.include_router(open_source_router)
+
+    @app.get("/healthz", response_model=None)
+    def health():
+        try:
+            database.one("SELECT 1 AS healthy")
+        except Exception:
+            return JSONResponse({"status": "unhealthy", "database": "unavailable"}, status_code=503)
+        return {"status": "ok", "database": "postgres" if database.postgres else "sqlite", "mode": "single-user-cluster"}
+
+    frontend = Path(os.getenv("MEZO_FRONTEND_DIST", "/app/frontend"))
+    if frontend.is_dir():
+        app.mount("/", StaticFiles(directory=frontend, html=True), name="frontend")

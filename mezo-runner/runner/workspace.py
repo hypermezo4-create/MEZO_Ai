@@ -21,8 +21,8 @@ class Workspace:
         self.task_root = self.allowed_root / user_id / task_id
         self.repo = self.task_root / "repo"
         self.secrets = self.task_root / ".runtime"
-        self.task_uid = int(os.getenv("MEZO_TASK_UID", str(os.getuid())))
-        self.task_gid = int(os.getenv("MEZO_TASK_GID", str(os.getgid())))
+        self.task_uid = int(os.getenv("MEZO_TASK_UID", str(getattr(os, "getuid", lambda: 0)())))
+        self.task_gid = int(os.getenv("MEZO_TASK_GID", str(getattr(os, "getgid", lambda: 0)())))
 
     def create(self) -> Path:
         self.task_root.mkdir(parents=True, mode=0o700, exist_ok=False)
@@ -32,7 +32,7 @@ class Workspace:
         return self.repo
 
     def grant_task_user(self) -> None:
-        if os.geteuid() != 0:
+        if getattr(os, "geteuid", lambda: 1)() != 0:
             return
         for root, directories, files in os.walk(self.task_root):
             os.chown(root, self.task_uid, self.task_gid, follow_symlinks=False)
@@ -42,7 +42,7 @@ class Workspace:
                 os.chown(Path(root) / name, self.task_uid, self.task_gid, follow_symlinks=False)
 
     def lock_for_retention(self) -> None:
-        if os.geteuid() != 0:
+        if getattr(os, "geteuid", lambda: 1)() != 0:
             raise WorkspaceViolation("Retaining a workspace safely requires root ownership")
         for root, directories, files in os.walk(self.task_root):
             os.chown(root, 0, 0, follow_symlinks=False)

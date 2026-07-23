@@ -1,219 +1,463 @@
-import { FormEvent, useEffect, useRef, useState } from "react"
-import { AlertTriangle, CheckCircle2, CircleStop, Code2, FileCode2, FolderGit2, GitPullRequest, History, ListChecks, LoaderCircle, LockKeyhole, Play, Radio, Server, ShieldCheck } from "lucide-react"
+import { FormEvent, useEffect, useMemo, useState } from "react"
+import {
+  Activity,
+  Archive,
+  Bot,
+  BrainCircuit,
+  Check,
+  ChevronRight,
+  CircleStop,
+  Code2,
+  Download,
+  Eye,
+  FileCode2,
+  FolderGit2,
+  GitBranch,
+  Layers3,
+  LoaderCircle,
+  MessageSquarePlus,
+  PanelRightOpen,
+  Plus,
+  RefreshCw,
+  Send,
+  Server,
+  ShieldCheck,
+  Sparkles,
+  Terminal,
+  X,
+  Zap,
+} from "lucide-react"
 
-import { Approval, MezoApi, MezoApiError, Project, Repository, Runner, Task, TaskEvent } from "@/lib/api"
+import {
+  api,
+  type ClusterStatus,
+  type Conversation,
+  type Interaction,
+  type Message,
+  type Mode,
+  type ModelHealth,
+  type Project,
+  type Task,
+  type TaskEvent,
+} from "./lib/api"
 
-const api = new MezoApi()
-const terminalTypes = new Set(["command_start", "stdout", "stderr", "command_finish"])
-const terminalText = (event: TaskEvent) => String(event.payload.message || event.payload.command || `${event.type}${event.payload.exit_code !== undefined ? ` (exit ${event.payload.exit_code})` : ""}`)
-const terminalState = new Set(["completed", "failed", "cancelled"])
+const terminalStates = new Set(["completed", "failed", "cancelled"])
 
-function Login({ onReady }: { onReady: () => void }) {
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [bootstrapToken, setBootstrapToken] = useState("")
-  const [bootstrap, setBootstrap] = useState(false)
-  const [error, setError] = useState("")
-  const [busy, setBusy] = useState(false)
-  const submit = async (event: FormEvent) => {
-    event.preventDefault(); setBusy(true); setError("")
-    try {
-      if (bootstrap) await api.bootstrap(email, password, bootstrapToken)
-      else await api.login(email, password)
-      onReady()
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Authentication failed") }
-    finally { setBusy(false) }
-  }
-  return <main className="login-shell"><form className="login-card" onSubmit={submit}>
-    <div className="logo"><Code2 /><span>MEZO AI</span></div>
-    <h1>{bootstrap ? "Create the first owner" : "Sign in to the control plane"}</h1>
-    <p>Credentials are exchanged for an expiring bearer token and kept in memory only.</p>
-    <label>Email<input type="email" required value={email} onChange={e => setEmail(e.target.value)} /></label>
-    <label>Password<input type="password" required minLength={bootstrap ? 12 : undefined} value={password} onChange={e => setPassword(e.target.value)} /></label>
-    {bootstrap && <label>Bootstrap token<input type="password" required value={bootstrapToken} onChange={e => setBootstrapToken(e.target.value)} /></label>}
-    {error && <div className="error"><AlertTriangle />{error}</div>}
-    <button className="primary" disabled={busy}>{busy ? <LoaderCircle className="spin" /> : <LockKeyhole />}{bootstrap ? "Bootstrap owner" : "Sign in"}</button>
-    <button type="button" className="link" onClick={() => setBootstrap(value => !value)}>{bootstrap ? "Return to sign in" : "First deployment? Bootstrap the owner"}</button>
-  </form></main>
+const modeOptions: Array<{
+  value: Mode
+  label: string
+  short: string
+  description: string
+  icon: typeof Sparkles
+}> = [
+  { value: "auto", label: "Auto", short: "Best model", description: "MEZO chooses the right specialist", icon: Sparkles },
+  { value: "fast", label: "Fast", short: "Quick reply", description: "Chat, summaries and lightweight work", icon: Zap },
+  { value: "coding", label: "Coding", short: "Build & fix", description: "Repository-aware coding agent", icon: Code2 },
+  { value: "deep", label: "Reasoning", short: "Think deeply", description: "Architecture and complex planning", icon: BrainCircuit },
+  { value: "vision", label: "Vision", short: "See & analyse", description: "Images, screenshots and interfaces", icon: Eye },
+  { value: "multi", label: "Multi-agent", short: "Team mode", description: "Several specialists collaborate", icon: Layers3 },
+]
+
+const modelCards = [
+  { key: "fast", label: "MEZO Fast", purpose: "Routing, chat and short tasks", icon: Zap },
+  { key: "coding", label: "Qwen Coder", purpose: "Code, repositories and tests", icon: Code2 },
+  { key: "deep", label: "GLM Reasoning", purpose: "Architecture and difficult analysis", icon: BrainCircuit },
+  { key: "debug", label: "DeepSeek Reviewer", purpose: "Review, debugging and security", icon: ShieldCheck },
+  { key: "vision", label: "Qwen Vision", purpose: "Images, screenshots and UI", icon: Eye },
+]
+
+const suggestionCards = [
+  {
+    icon: Code2,
+    title: "Build or fix code",
+    body: "Inspect the selected repository and implement the right change.",
+    prompt: "Inspect the selected repository, identify the root cause of its most important issue, and fix only what is necessary.",
+  },
+  {
+    icon: BrainCircuit,
+    title: "Plan a system",
+    body: "Use deep reasoning for architecture and technical decisions.",
+    prompt: "Review the project architecture and propose a practical improvement plan with risks and priorities.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Review a patch",
+    body: "Find correctness, security and regression risks.",
+    prompt: "Review the current project for correctness, security risks, missing tests, and unsafe assumptions.",
+  },
+]
+
+function humanStatus(value: string): string {
+  return value.replaceAll("_", " ")
+}
+
+function eventSummary(event: TaskEvent): string {
+  const candidate = event.payload.message ?? event.payload.command ?? event.payload.name ?? event.payload.error
+  if (typeof candidate === "string" && candidate.trim()) return candidate
+  if (typeof event.payload.exit_code === "number") return `Exit code ${event.payload.exit_code}`
+  return humanStatus(event.event_type)
+}
+
+function ModelRow({ name, purpose, health, icon: Icon }: {
+  name: string
+  purpose: string
+  health?: ModelHealth
+  icon: typeof Zap
+}) {
+  const healthy = Boolean(health?.healthy)
+  const replicas = health?.replicas?.filter(item => item.healthy).length ?? 0
+
+  return <article className="model-row">
+    <span className="model-symbol"><Icon /></span>
+    <span className="model-details">
+      <span className="model-name"><strong>{name}</strong><i className={healthy ? "online" : "offline"} /></span>
+      <small>{purpose}</small>
+    </span>
+    <span className="model-state">{healthy ? `${replicas || 1} active` : "offline"}</span>
+  </article>
+}
+
+function MessageBubble({ message }: { message: Message }) {
+  const assistant = message.role === "assistant"
+  return <article className={`message ${assistant ? "assistant" : "user"}`}>
+    <div className="message-avatar">{assistant ? <span className="mini-logo">M</span> : <span>You</span>}</div>
+    <div className="message-body">
+      <div className="message-meta">
+        <strong>{assistant ? "MEZO" : "You"}</strong>
+        <time>{message.created_at ? new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</time>
+      </div>
+      <div className="message-content" dir="auto">{message.content}</div>
+    </div>
+  </article>
 }
 
 export default function App() {
-  const [authenticated, setAuthenticated] = useState(false)
-  const [repositories, setRepositories] = useState<Repository[]>([])
+  const [status, setStatus] = useState<ClusterStatus | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
+  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [messages, setMessages] = useState<Message[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
-  const [runners, setRunners] = useState<Runner[]>([])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [events, setEvents] = useState<TaskEvent[]>([])
-  const [approval, setApproval] = useState<Approval | null>(null)
-  const [auditValid, setAuditValid] = useState<boolean | null>(null)
-  const [repoId, setRepoId] = useState("")
-  const [title, setTitle] = useState("")
-  const [description, setDescription] = useState("")
-  const [error, setError] = useState("")
+  const [conversationId, setConversationId] = useState("")
+  const [projectId, setProjectId] = useState("")
+  const [repoUrl, setRepoUrl] = useState("")
+  const [repoBranch, setRepoBranch] = useState("main")
+  const [prompt, setPrompt] = useState("")
+  const [mode, setMode] = useState<Mode>("auto")
+  const [interaction, setInteraction] = useState<Interaction>("auto")
   const [busy, setBusy] = useState(false)
-  const abortRef = useRef<AbortController | null>(null)
-  const selected = tasks.find(task => task.id === selectedId) || null
-  const terminalEvents = events.filter(event => terminalTypes.has(event.type))
-  const installedSkills = Array.from(new Set(runners.flatMap(runner => {
-    const skills = runner.capabilities.skills
-    return Array.isArray(skills) ? skills.filter((skill): skill is string => typeof skill === "string") : []
-  })))
+  const [projectBusy, setProjectBusy] = useState(false)
+  const [showProjectForm, setShowProjectForm] = useState(false)
+  const [showInspector, setShowInspector] = useState(false)
+  const [error, setError] = useState("")
 
-  const refreshOverview = async () => {
-    const [nextRepos, nextProjects, nextTasks, nextRunners, audit] = await Promise.all([
-      api.repositories(), api.projects(), api.tasks(), api.runners(), api.audit(),
+  const selectedConversation = useMemo(
+    () => conversations.find(item => item.id === conversationId) ?? null,
+    [conversations, conversationId],
+  )
+  const selectedProject = useMemo(
+    () => projects.find(item => item.id === projectId) ?? null,
+    [projects, projectId],
+  )
+  const selectedTask = useMemo(
+    () => tasks.find(task => task.conversation_id === conversationId) ?? null,
+    [tasks, conversationId],
+  )
+  const activeMode = modeOptions.find(item => item.value === mode) ?? modeOptions[0]
+  const ActiveModeIcon = activeMode.icon
+  const onlineMachines = status?.machines.filter(machine => machine.status === "online" || machine.status === "busy").length ?? 0
+  const totalMachines = status?.configured_machine_count ?? status?.machines.length ?? 9
+  const runningTask = Boolean(selectedTask && !terminalStates.has(selectedTask.status))
+
+  const refresh = async () => {
+    const [nextStatus, nextProjects, nextConversations, nextTasks] = await Promise.all([
+      api.status(),
+      api.projects(),
+      api.conversations(),
+      api.tasks(),
     ])
-    setRepositories(nextRepos); setProjects(nextProjects); setTasks(nextTasks); setRunners(nextRunners); setAuditValid(audit.integrity_valid)
-    if (!repoId && nextRepos[0]) setRepoId(nextRepos[0].id)
-  }
-
-  const refreshApproval = async (taskId: string) => {
-    try {
-      setApproval(await api.approval(taskId))
-    } catch (cause) {
-      if (cause instanceof MezoApiError && cause.status === 404) {
-        setApproval(null)
-        return
-      }
-      throw cause
-    }
+    setStatus(nextStatus)
+    setProjects(nextProjects)
+    setConversations(nextConversations)
+    setTasks(nextTasks)
+    setProjectId(current => current || nextProjects[0]?.id || "")
   }
 
   useEffect(() => {
-    if (!authenticated) return
-    void refreshOverview().catch(cause => setError(cause instanceof Error ? cause.message : "Could not load MEZO"))
-    const timer = window.setInterval(() => {
-      void refreshOverview().catch(cause => setError(cause instanceof Error ? cause.message : "Could not refresh MEZO"))
-    }, 5000)
+    void refresh().catch(cause => setError(cause instanceof Error ? cause.message : "Could not load MEZO"))
+    const timer = window.setInterval(() => void refresh().catch(() => undefined), 5000)
     return () => window.clearInterval(timer)
-  }, [authenticated])
+  }, [])
 
   useEffect(() => {
-    abortRef.current?.abort(); setEvents([]); setApproval(null)
-    if (!selectedId || !authenticated) return
-    const controller = new AbortController(); abortRef.current = controller
-    let lastId = 0
-    const refreshTask = async () => {
-      const task = await api.task(selectedId)
-      setTasks(current => current.map(item => item.id === task.id ? task : item))
-      if (task.approval_state !== "none") {
-        await refreshApproval(task.id)
-      } else {
-        setApproval(null)
-      }
-      return task
+    if (!conversationId) {
+      setMessages([])
+      return
     }
-    const watch = async () => {
-      while (!controller.signal.aborted) {
-        try {
-          await api.streamTask(selectedId, lastId, controller.signal, event => {
-            lastId = Math.max(lastId, event.id)
-            setEvents(current => current.some(item => item.id === event.id) ? current : [...current, event])
-          })
-          const task = await refreshTask()
-          if (terminalState.has(task.status)) return
-          await new Promise(resolve => window.setTimeout(resolve, 1000))
-        } catch (cause) {
-          if (controller.signal.aborted) return
-          setError(cause instanceof Error ? cause.message : "Task stream disconnected")
-          await new Promise(resolve => window.setTimeout(resolve, 1500))
-        }
-      }
-    }
-    void refreshTask().catch(cause => setError(cause instanceof Error ? cause.message : "Could not refresh task"))
-    const refreshTimer = window.setInterval(() => {
-      void refreshTask().catch(cause => setError(cause instanceof Error ? cause.message : "Could not refresh task"))
-    }, 2000)
-    void watch()
-    return () => { controller.abort(); window.clearInterval(refreshTimer) }
-  }, [selectedId, authenticated])
+    void api.messages(conversationId)
+      .then(setMessages)
+      .catch(cause => setError(cause instanceof Error ? cause.message : "Could not load conversation"))
+  }, [conversationId])
 
-  if (!authenticated) return <Login onReady={() => setAuthenticated(true)} />
+  useEffect(() => {
+    setEvents([])
+    if (!selectedTask || terminalStates.has(selectedTask.status)) return
+    const controller = new AbortController()
+    let cursor = 0
+    void api.stream(selectedTask.id, cursor, controller.signal, event => {
+      cursor = Math.max(cursor, event.id)
+      setEvents(current => current.some(item => item.id === event.id) ? current : [...current, event])
+    }).catch(cause => {
+      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Task stream disconnected")
+    })
+    return () => controller.abort()
+  }, [selectedTask?.id, selectedTask?.status])
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault(); setBusy(true); setError("")
-    try {
-      const task = await api.createTask({ repository_id: repoId, title, description })
-      setTasks(current => [task, ...current]); setSelectedId(task.id); setTitle(""); setDescription("")
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Task creation failed") }
-    finally { setBusy(false) }
+  useEffect(() => {
+    if (!selectedTask || !terminalStates.has(selectedTask.status) || !conversationId) return
+    void api.messages(conversationId).then(setMessages).catch(() => undefined)
+  }, [selectedTask?.status, conversationId])
+
+  const newChat = () => {
+    setConversationId("")
+    setMessages([])
+    setEvents([])
+    setPrompt("")
+    setError("")
   }
 
-  const runTaskAction = async (action: () => Promise<unknown>) => {
-    setBusy(true); setError("")
+  const addProject = async (event: FormEvent) => {
+    event.preventDefault()
+    setProjectBusy(true)
+    setError("")
     try {
-      await action()
-      await refreshOverview()
-      if (selectedId) {
-        const task = await api.task(selectedId)
-        setTasks(current => current.map(item => item.id === task.id ? task : item))
-        await refreshApproval(selectedId)
-      }
+      const parsed = new URL(repoUrl)
+      if (parsed.protocol !== "https:") throw new Error("Repository URL must use HTTPS")
+      const name = parsed.pathname.split("/").filter(Boolean).pop()?.replace(/\.git$/i, "") || "Repository"
+      const project = await api.createProject({
+        name,
+        repository_url: repoUrl.trim(),
+        default_branch: repoBranch.trim() || "main",
+      })
+      setProjects(current => [project, ...current])
+      setProjectId(project.id)
+      setRepoUrl("")
+      setRepoBranch("main")
+      setShowProjectForm(false)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not add repository")
+    } finally {
+      setProjectBusy(false)
     }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Action failed") }
-    finally { setBusy(false) }
   }
 
-  return <div className="mezo-shell">
-    <aside className="left-panel">
-      <div className="brand"><div className="brand-icon"><Code2 /></div><div><strong>MEZO AI</strong><span>Agent control plane</span></div></div>
-      <NavSection icon={<FolderGit2 />} title="Projects">{projects.length ? projects.map(project => <div className="nav-row" key={project.id}>{project.name}</div>) : <Empty text="No projects" />}</NavSection>
-      <NavSection icon={<History />} title="Conversations"><div className="nav-row active">Task workspace</div></NavSection>
-      <NavSection icon={<ListChecks />} title="Tasks">{tasks.map(task => <button key={task.id} className={`task-row ${selectedId === task.id ? "active" : ""}`} onClick={() => setSelectedId(task.id)}><span>{task.title}</span><Status value={task.status} /></button>)}</NavSection>
-      <NavSection icon={<Server />} title="Runners">{runners.length ? runners.map(runner => <div className="runner-row" key={runner.id}><span className={`runner-dot ${runner.status}`} /> <div><strong>{runner.name}</strong><small>{runner.status}{runner.current_task_id ? " · busy" : ""}</small></div></div>) : <Empty text="No registered runner" />}</NavSection>
-      <NavSection icon={<ShieldCheck />} title="Skills">{installedSkills.length ? <div className="skills">{installedSkills.map(skill => <span key={skill}>{skill}</span>)}</div> : <Empty text="No runner skills reported" />}</NavSection>
-      <div className={`audit ${auditValid === true ? "ok" : "bad"}`}><ShieldCheck /> Audit chain {auditValid === true ? "verified" : auditValid === false ? "invalid" : "checking"}</div>
+  const send = async (event: FormEvent) => {
+    event.preventDefault()
+    const cleanPrompt = prompt.trim()
+    if (!cleanPrompt) return
+    if (interaction === "agent" && !projectId) {
+      setError("Choose a project before starting an agent task")
+      return
+    }
+
+    setBusy(true)
+    setError("")
+    setEvents([])
+    try {
+      const result = await api.dispatch({
+        prompt: cleanPrompt,
+        conversation_id: conversationId || undefined,
+        project_id: projectId || undefined,
+        mode,
+        interaction,
+      })
+      setConversationId(result.conversation_id)
+      setMessages(await api.messages(result.conversation_id))
+      setPrompt("")
+      if (result.task) setShowInspector(true)
+      await refresh()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "MEZO could not complete the request")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const cancelTask = async () => {
+    if (!selectedTask) return
+    setBusy(true)
+    setError("")
+    try {
+      await api.cancel(selectedTask.id)
+      await refresh()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not cancel task")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const decideTask = async (value: "accept" | "reject") => {
+    if (!selectedTask) return
+    setBusy(true)
+    setError("")
+    try {
+      await api.decide(selectedTask.id, value)
+      await refresh()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not save decision")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <div className="mezo-app">
+    <aside className="sidebar">
+      <div className="brand">
+        <div className="brand-logo" aria-label="MEZO AI logo"><span>M</span><i /></div>
+        <div><strong>MEZO AI</strong><small>Private intelligence</small></div>
+      </div>
+
+      <button className="new-chat" onClick={newChat}><MessageSquarePlus /> New chat</button>
+
+      <nav className="sidebar-block" aria-label="Conversations">
+        <div className="sidebar-heading"><span>Recent</span><small>{conversations.length}</small></div>
+        <div className="conversation-list">
+          {conversations.length === 0 && <p className="sidebar-empty">Your conversations will appear here.</p>}
+          {conversations.map(conversation => <button
+            key={conversation.id}
+            className={conversation.id === conversationId ? "active" : ""}
+            onClick={() => setConversationId(conversation.id)}
+          ><span>{conversation.title}</span><ChevronRight /></button>)}
+        </div>
+      </nav>
+
+      <section className="sidebar-block projects-block">
+        <div className="sidebar-heading">
+          <span>Projects</span>
+          <button className="small-icon" aria-label="Add project" onClick={() => setShowProjectForm(value => !value)}><Plus /></button>
+        </div>
+
+        {showProjectForm && <form className="project-form" onSubmit={addProject}>
+          <label>Repository URL<input aria-label="Repository URL" type="url" required value={repoUrl} onChange={event => setRepoUrl(event.target.value)} placeholder="https://github.com/owner/repo.git" /></label>
+          <label>Default branch<input value={repoBranch} onChange={event => setRepoBranch(event.target.value)} placeholder="main" /></label>
+          <div><button type="button" onClick={() => setShowProjectForm(false)}>Cancel</button><button className="primary" disabled={projectBusy}>{projectBusy ? <LoaderCircle className="spin" /> : <Plus />} Add</button></div>
+        </form>}
+
+        <div className="project-list">
+          {projects.length === 0 && !showProjectForm && <button className="empty-project" onClick={() => setShowProjectForm(true)}><FolderGit2 /> Connect a repository</button>}
+          {projects.map(project => <button key={project.id} className={project.id === projectId ? "active" : ""} onClick={() => setProjectId(project.id)}>
+            <span><FolderGit2 />{project.name}</span><small>{project.default_branch}</small>
+          </button>)}
+        </div>
+      </section>
+
+      <button className="cluster-card" onClick={() => setShowInspector(true)}>
+        <span className="cluster-icon"><Server /></span>
+        <span><strong>{onlineMachines}/{totalMachines}</strong><small>machines online</small></span>
+        <i className={status?.router.healthy ? "online" : "offline"} />
+      </button>
     </aside>
 
-    <main className="center-panel">
-      <header><div><span className="kicker">REMOTE DEVELOPMENT AGENT</span><h1>{selected?.title || "Start a repository task"}</h1></div>{selected && <Status value={selected.status} />}</header>
-      {error && <div className="error banner"><AlertTriangle />{error}</div>}
-      {!selected ? <form className="task-composer" onSubmit={submit}>
-        <div className="chat-intro"><div className="agent-avatar">M</div><div><strong>MEZO</strong><p>Choose an authorized repository and describe the change. The runner will stop before every external write.</p></div></div>
-        <label>Repository<select required value={repoId} onChange={event => setRepoId(event.target.value)}><option value="" disabled>Select repository</option>{repositories.map(repo => <option value={repo.id} key={repo.id}>{repo.full_name}</option>)}</select></label>
-        <label>Task title<input required minLength={3} value={title} onChange={event => setTitle(event.target.value)} placeholder="Fix the failing validation workflow" /></label>
-        <label>Development task<textarea required minLength={3} value={description} onChange={event => setDescription(event.target.value)} placeholder="Describe the desired outcome, constraints, and acceptance criteria…" /></label>
-        <button className="primary" disabled={busy || !repoId}>{busy ? <LoaderCircle className="spin" /> : <Play />}Queue task</button>
-      </form> : <>
-        <section className="task-summary"><div><span>Repository</span><strong>{selected.repository}</strong></div><div><span>Branch</span><strong>{selected.working_branch}</strong></div><div><span>Runner</span><strong>{selected.runner_id || "Waiting"}</strong></div></section>
-        <section className="timeline"><h2><Radio /> Live task timeline</h2>{selected.steps.map(step => <div className={`step ${step.status}`} key={step.id}><div className="step-index">{step.step_index + 1}</div><div><strong>{step.name}</strong><p>{step.description}</p>{step.result_summary && <small>{step.result_summary}</small>}{step.error && <small className="bad">{step.error}</small>}</div><Status value={step.status} /></div>)}</section>
-        {selected.status === "waiting_for_approval" && approval && <ApprovalCard approval={approval} busy={busy} onApprove={() => runTaskAction(() => api.decideApproval(selected.id, "approve"))} onReject={() => runTaskAction(() => api.decideApproval(selected.id, "reject"))} onCreate={() => runTaskAction(() => api.createDraftPullRequest(selected.id))} />}
-        {selected.error && <div className="failure"><AlertTriangle /><div><strong>Task failed</strong><p>{selected.error}</p></div></div>}
-        {selected.pull_request_url && <a className="pr-link" href={selected.pull_request_url} target="_blank" rel="noreferrer"><GitPullRequest />Open Draft Pull Request</a>}
-        {!terminalState.has(selected.status) && <button className="danger" disabled={busy} onClick={() => runTaskAction(() => api.cancelTask(selected.id))}><CircleStop />Cancel task</button>}
-      </>}
+    <main className="workspace">
+      <header className="topbar">
+        <div className="topbar-title">
+          <span className="mobile-logo">M</span>
+          <div><strong>{selectedConversation?.title || "New conversation"}</strong><small>{selectedProject ? selectedProject.name : "No project selected"}</small></div>
+        </div>
+        <div className="topbar-actions">
+          <button className="connection-pill" onClick={() => void refresh()}><span className={status?.router.healthy ? "online" : "offline"} /><span>{status?.router.healthy ? "Ready" : "Local API"}</span><RefreshCw /></button>
+          <button className="inspector-toggle" aria-label="Open MEZO status" onClick={() => setShowInspector(true)}><PanelRightOpen /></button>
+        </div>
+      </header>
+
+      {error && <div className="error-banner"><X /><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError("")}><X /></button></div>}
+
+      <section className="conversation-view">
+        {messages.length === 0 ? <div className="welcome">
+          <div className="hero-logo"><span>M</span><i /></div>
+          <p className="hero-kicker"><Sparkles /> PRIVATE AI WORKSPACE</p>
+          <h1>What should MEZO build?</h1>
+          <p className="hero-copy" dir="auto">اكتب طلبك بالعربي أو الإنجليزي. MEZO يختار الموديل المناسب، أو يشغّل فريقًا كاملًا على مشروعك.</p>
+
+          <div className="suggestions">
+            {suggestionCards.map(card => <button key={card.title} onClick={() => setPrompt(card.prompt)}>
+              <span><card.icon /></span>
+              <strong>{card.title}</strong>
+              <small>{card.body}</small>
+            </button>)}
+          </div>
+        </div> : <div className="messages">
+          {messages.map(message => <MessageBubble key={message.id} message={message} />)}
+          {runningTask && selectedTask && <article className="message assistant working-message">
+            <div className="message-avatar"><span className="mini-logo">M</span></div>
+            <div className="message-body">
+              <div className="message-meta"><strong>MEZO</strong><time>{humanStatus(selectedTask.status)}</time></div>
+              <div className="working-line"><LoaderCircle className="spin" /><span>Working through the repository…</span><button onClick={() => setShowInspector(true)}>View activity</button></div>
+            </div>
+          </article>}
+        </div>}
+      </section>
+
+      <form className="composer" onSubmit={send}>
+        <div className="composer-tools">
+          <label className="select-chip"><ActiveModeIcon /><select aria-label="MEZO mode" value={mode} onChange={event => setMode(event.target.value as Mode)}>{modeOptions.map(option => <option key={option.value} value={option.value}>{option.label} · {option.short}</option>)}</select></label>
+          <label className="select-chip"><Bot /><select aria-label="Interaction type" value={interaction} onChange={event => setInteraction(event.target.value as Interaction)}><option value="auto">Auto action</option><option value="chat">Chat only</option><option value="agent">Agent task</option></select></label>
+          <label className="select-chip project-chip"><FolderGit2 /><select aria-label="Project" value={projectId} onChange={event => setProjectId(event.target.value)}><option value="">No project</option>{projects.map(project => <option key={project.id} value={project.id}>{project.name} · {project.default_branch}</option>)}</select></label>
+        </div>
+
+        <div className="composer-input">
+          <textarea
+            aria-label="Message MEZO"
+            value={prompt}
+            onChange={event => setPrompt(event.target.value)}
+            placeholder={selectedProject ? `Message MEZO about ${selectedProject.name}…` : "Message MEZO…"}
+            dir="auto"
+            onKeyDown={event => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault()
+                event.currentTarget.form?.requestSubmit()
+              }
+            }}
+          />
+          {runningTask ? <button type="button" className="stop-button" onClick={() => void cancelTask()} disabled={busy} aria-label="Stop task"><CircleStop /></button> : <button className="send-button" disabled={busy || !prompt.trim()} aria-label="Send message">{busy ? <LoaderCircle className="spin" /> : <Send />}</button>}
+        </div>
+        <p className="composer-note">MEZO can make mistakes. Review changes before accepting them.</p>
+      </form>
     </main>
 
-    <aside className="right-panel">
-      <header><FileCode2 /><div><strong>Workspace evidence</strong><span>Read-only</span></div></header>
-      {!selected ? <Empty text="Select a task to inspect its evidence" /> : <>
-        <EvidenceSection title="Changed files"><div className="file-list">{selected.changed_files.length ? selected.changed_files.map(file => <div key={file.path}><code>{file.path}</code><span className="plus">+{file.additions ?? "bin"}</span><span className="minus">-{file.deletions ?? "bin"}</span></div>) : <Empty text="No validated changes yet" />}</div></EvidenceSection>
-        <EvidenceSection title="Unified diff"><pre className="diff">{selected.diff_text || "Diff becomes available after validation."}</pre></EvidenceSection>
-        <EvidenceSection title="Terminal"><pre className="terminal">{terminalEvents.length ? terminalEvents.map(event => `[${new Date(event.timestamp).toLocaleTimeString()}] ${terminalText(event)}`).join("\n") : "Waiting for runner output…"}</pre></EvidenceSection>
-        <EvidenceSection title="Tests"><ResultList items={selected.validation_report.tests || []} /></EvidenceSection>
-        <EvidenceSection title="Guards"><ResultList items={selected.validation_report.guards || []} /></EvidenceSection>
-      </>}
+    <div className={`drawer-backdrop ${showInspector ? "visible" : ""}`} onClick={() => setShowInspector(false)} />
+    <aside className={`inspector ${showInspector ? "open" : ""}`} aria-hidden={!showInspector}>
+      <header className="inspector-header"><div><small>MEZO CONTROL</small><h2>System activity</h2></div><button aria-label="Close MEZO status" onClick={() => setShowInspector(false)}><X /></button></header>
+
+      <section className="inspector-section">
+        <div className="section-title"><span><Activity /> Cluster</span><small>{onlineMachines}/{totalMachines} online</small></div>
+        <div className="cluster-stats">
+          <div><strong>{onlineMachines}</strong><span>Online</span></div>
+          <div><strong>{status?.max_machine_count ?? 20}</strong><span>Capacity</span></div>
+          <div><strong>{status?.max_concurrent_tasks ?? 4}</strong><span>Tasks</span></div>
+        </div>
+        <div className="model-list">{modelCards.map(model => <ModelRow key={model.key} name={model.label} purpose={model.purpose} health={status?.router.models?.[model.key]} icon={model.icon} />)}</div>
+      </section>
+
+      <section className="inspector-section task-section">
+        <div className="section-title"><span><FileCode2 /> Task</span><small>{selectedTask ? humanStatus(selectedTask.status) : "idle"}</small></div>
+        {!selectedTask && <div className="empty-evidence"><Terminal /><p>Agent tools, changed files, reviews and patches will appear here.</p></div>}
+        {selectedTask && <>
+          <div className="task-meta"><div><span>Mode</span><strong>{selectedTask.mode}</strong></div><div><span>Runner</span><strong>{selectedTask.runner_id || "Waiting"}</strong></div><div><span>Files</span><strong>{selectedTask.changed_files.length}</strong></div></div>
+          {events.length > 0 && <div className="event-feed">{events.slice(-12).map(event => <div className="event-row" key={event.id}><span><Terminal /></span><div><strong>{humanStatus(event.event_type)}</strong><pre>{eventSummary(event)}</pre></div></div>)}</div>}
+          {selectedTask.changed_files.length > 0 && <div className="changed-files"><h3><GitBranch />Changed files</h3>{selectedTask.changed_files.map(file => <div key={file.path}><code>{file.path}</code><span>{file.status || "M"}</span></div>)}</div>}
+          {selectedTask.diff_text && <details className="diff-panel"><summary>View patch</summary><pre>{selectedTask.diff_text}</pre></details>}
+          {selectedTask.error && <div className="task-error"><X /><span>{selectedTask.error}</span></div>}
+          {selectedTask.reviewer_chain.length > 0 && <div className="review-chain"><h3><ShieldCheck />Review chain</h3><p>{selectedTask.reviewer_chain.join(" → ")}</p></div>}
+          {selectedTask.status === "completed" && <div className="task-actions">
+            <button className="approve" disabled={busy || selectedTask.decision === "accept"} onClick={() => void decideTask("accept")}><Check />Accept</button>
+            <button className="reject" disabled={busy || selectedTask.decision === "reject"} onClick={() => void decideTask("reject")}><X />Reject</button>
+            <a href={api.patchUrl(selectedTask.id)}><Download />Patch</a>
+            <a href={api.archiveUrl(selectedTask.id)}><Archive />Archive</a>
+          </div>}
+        </>}
+      </section>
     </aside>
   </div>
-}
-
-function NavSection({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) { return <section className="nav-section"><h2>{icon}{title}</h2>{children}</section> }
-function EvidenceSection({ title, children }: { title: string; children: React.ReactNode }) { return <section className="evidence"><h2>{title}</h2>{children}</section> }
-function Empty({ text }: { text: string }) { return <p className="empty">{text}</p> }
-function Status({ value }: { value: string }) { return <span className={`status status-${value}`}>{value.replaceAll("_", " ")}</span> }
-function ResultList({ items }: { items: Array<{ command?: string; name?: string; status?: string; exit_code: number }> }) { return <div className="results">{items.length ? items.map((item, index) => <div key={`${item.command || item.name}-${index}`}>{item.exit_code === 0 ? <CheckCircle2 /> : <AlertTriangle />}<code>{item.command || item.name}</code><span>{item.status || `exit ${item.exit_code}`}</span></div>) : <Empty text="No results yet" />}</div> }
-
-function ApprovalCard({ approval, busy, onApprove, onReject, onCreate }: { approval: Approval; busy: boolean; onApprove: () => void; onReject: () => void; onCreate: () => void }) {
-  const approved = approval.state === "approved"
-  const request = approval.request
-  return <section className="approval-card"><div className="approval-head"><ShieldCheck /><div><span>EXTERNAL WRITE APPROVAL</span><h2>Create Draft Pull Request</h2></div></div>
-    <dl><dt>Repository</dt><dd>{request.repository}</dd><dt>Branch</dt><dd>{request.working_branch} → {request.base_branch}</dd><dt>Diff hash</dt><dd><code>{approval.diff_hash}</code></dd><dt>Commit</dt><dd><code>{request.commit_sha}</code></dd><dt>Expires</dt><dd>{new Date(approval.expires_at).toLocaleString()}</dd><dt>Diff summary</dt><dd>{request.diff_summary.files} files, +{request.diff_summary.additions} / -{request.diff_summary.deletions}</dd><dt>PR title</dt><dd>{request.pull_request_title}</dd></dl>
-    <details><summary>Changed files ({request.changed_files.length})</summary><div className="approval-evidence">{request.changed_files.map(file => <code key={file.path}>{file.path} (+{file.additions ?? "bin"} / -{file.deletions ?? "bin"})</code>)}</div></details>
-    <details><summary>Commands and tests</summary><ResultList items={[...request.commands, ...request.tests]} /></details>
-    <details><summary>Guard results</summary><ResultList items={request.guards} /></details>
-    <details><summary>Known risks ({request.known_risks.length})</summary>{request.known_risks.length ? <ul>{request.known_risks.map(risk => <li key={risk}>{risk}</li>)}</ul> : <p className="empty">No known risks reported.</p>}</details>
-    <details><summary>Pull Request body preview</summary><pre className="approval-preview">{request.pull_request_body}</pre></details>
-    {!approved ? <div className="approval-actions"><button className="danger" disabled={busy} onClick={onReject}>Reject</button><button className="primary" disabled={busy} onClick={onApprove}>Approve exact diff</button></div> : <button className="primary full" disabled={busy} onClick={onCreate}><GitPullRequest />Create Draft Pull Request now</button>}
-  </section>
 }
