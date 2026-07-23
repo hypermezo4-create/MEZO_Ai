@@ -18,7 +18,6 @@ import {
   LoaderCircle,
   MessageSquarePlus,
   Plus,
-  Radio,
   RefreshCw,
   Send,
   Server,
@@ -48,15 +47,14 @@ const modeOptions: Array<{
   value: Mode
   label: string
   description: string
-  modelKey: string
   icon: typeof Sparkles
 }> = [
-  { value: "auto", label: "Auto", description: "MEZO picks the best specialist", modelKey: "fast", icon: Sparkles },
-  { value: "fast", label: "Fast", description: "Quick answers and lightweight work", modelKey: "fast", icon: Zap },
-  { value: "coding", label: "Coding", description: "Repository-aware coding agent", modelKey: "coding", icon: Code2 },
-  { value: "deep", label: "Reasoning", description: "Architecture and complex planning", modelKey: "deep", icon: BrainCircuit },
-  { value: "vision", label: "Vision", description: "Images, screenshots and interfaces", modelKey: "vision", icon: Eye },
-  { value: "multi", label: "Multi", description: "Several specialists collaborate", modelKey: "debug", icon: Layers3 },
+  { value: "auto", label: "Auto", description: "MEZO picks the best specialist", icon: Sparkles },
+  { value: "fast", label: "Fast", description: "Quick answers and lightweight work", icon: Zap },
+  { value: "coding", label: "Coding", description: "Repository-aware coding agent", icon: Code2 },
+  { value: "deep", label: "Reasoning", description: "Architecture and complex planning", icon: BrainCircuit },
+  { value: "vision", label: "Vision", description: "Images, screenshots and interfaces", icon: Eye },
+  { value: "multi", label: "Multi", description: "Several specialists collaborate", icon: Layers3 },
 ]
 
 const modelCards = [
@@ -72,10 +70,9 @@ function humanStatus(value: string): string {
 }
 
 function eventSummary(event: TaskEvent): string {
-  const payload = event.payload
-  const candidate = payload.message ?? payload.command ?? payload.name ?? payload.error
+  const candidate = event.payload.message ?? event.payload.command ?? event.payload.name ?? event.payload.error
   if (typeof candidate === "string" && candidate.trim()) return candidate
-  if (typeof payload.exit_code === "number") return `Exit code ${payload.exit_code}`
+  if (typeof event.payload.exit_code === "number") return `Exit code ${event.payload.exit_code}`
   return humanStatus(event.event_type)
 }
 
@@ -83,7 +80,12 @@ function HealthDot({ healthy }: { healthy: boolean }) {
   return <span className={`health-dot ${healthy ? "healthy" : "unhealthy"}`} aria-label={healthy ? "healthy" : "unavailable"} />
 }
 
-function ModelCard({ name, purpose, health, icon: Icon }: { name: string; purpose: string; health?: ModelHealth; icon: typeof Zap }) {
+function ModelCard({ name, purpose, health, icon: Icon }: {
+  name: string
+  purpose: string
+  health?: ModelHealth
+  icon: typeof Zap
+}) {
   const healthy = Boolean(health?.healthy)
   const replicas = health?.replicas?.filter(item => item.healthy).length ?? 0
   return <article className="model-card">
@@ -101,7 +103,10 @@ function MessageBubble({ message }: { message: Message }) {
   return <article className={`message-row ${assistant ? "assistant" : "user"}`}>
     <div className="message-avatar">{assistant ? <Bot /> : "You"}</div>
     <div className="message-body">
-      <div className="message-meta"><strong>{assistant ? "MEZO" : "You"}</strong><span>{message.created_at ? new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</span></div>
+      <div className="message-meta">
+        <strong>{assistant ? "MEZO" : "You"}</strong>
+        <span>{message.created_at ? new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</span>
+      </div>
       <div className="message-content">{message.content}</div>
     </div>
   </article>
@@ -139,9 +144,10 @@ export default function App() {
     [tasks, conversationId],
   )
   const activeMode = modeOptions.find(item => item.value === mode) ?? modeOptions[0]
+  const ActiveModeIcon = activeMode.icon
   const onlineMachines = status?.machines.filter(machine => machine.status === "online" || machine.status === "busy").length ?? 0
   const totalMachines = status?.configured_machine_count ?? status?.machines.length ?? 0
-  const runningTask = selectedTask && !terminalStates.has(selectedTask.status)
+  const runningTask = Boolean(selectedTask && !terminalStates.has(selectedTask.status))
 
   const refresh = async () => {
     const [nextStatus, nextProjects, nextConversations, nextTasks] = await Promise.all([
@@ -159,9 +165,7 @@ export default function App() {
 
   useEffect(() => {
     void refresh().catch(cause => setError(cause instanceof Error ? cause.message : "Could not load MEZO"))
-    const timer = window.setInterval(() => {
-      void refresh().catch(() => undefined)
-    }, 5000)
+    const timer = window.setInterval(() => void refresh().catch(() => undefined), 5000)
     return () => window.clearInterval(timer)
   }, [])
 
@@ -178,7 +182,6 @@ export default function App() {
   useEffect(() => {
     setEvents([])
     if (!selectedTask || terminalStates.has(selectedTask.status)) return
-
     const controller = new AbortController()
     let cursor = 0
     void api.stream(selectedTask.id, cursor, controller.signal, event => {
@@ -187,7 +190,6 @@ export default function App() {
     }).catch(cause => {
       if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Task stream disconnected")
     })
-
     return () => controller.abort()
   }, [selectedTask?.id, selectedTask?.status])
 
@@ -212,7 +214,11 @@ export default function App() {
       const parsed = new URL(repoUrl)
       if (parsed.protocol !== "https:") throw new Error("Repository URL must use HTTPS")
       const name = parsed.pathname.split("/").filter(Boolean).pop()?.replace(/\.git$/i, "") || "Repository"
-      const project = await api.createProject({ name, repository_url: repoUrl.trim(), default_branch: repoBranch.trim() || "main" })
+      const project = await api.createProject({
+        name,
+        repository_url: repoUrl.trim(),
+        default_branch: repoBranch.trim() || "main",
+      })
       setProjects(current => [project, ...current])
       setProjectId(project.id)
       setRepoUrl("")
@@ -233,7 +239,6 @@ export default function App() {
       setError("Choose a project before starting an agent task")
       return
     }
-
     setBusy(true)
     setError("")
     setEvents([])
@@ -290,7 +295,6 @@ export default function App() {
         <div className="brand-mark" aria-hidden="true"><span>M</span><i /></div>
         <div><strong>MEZO AI</strong><small>Private agent cluster</small></div>
       </div>
-
       <button className="new-chat" onClick={newChat}><MessageSquarePlus /> New chat</button>
 
       <nav className="sidebar-section" aria-label="Conversations">
@@ -301,9 +305,7 @@ export default function App() {
             key={conversation.id}
             className={conversation.id === conversationId ? "active" : ""}
             onClick={() => setConversationId(conversation.id)}
-          >
-            <span>{conversation.title}</span><ChevronRight />
-          </button>)}
+          ><span>{conversation.title}</span><ChevronRight /></button>)}
         </div>
       </nav>
 
@@ -330,13 +332,8 @@ export default function App() {
 
     <main className="workspace">
       <header className="workspace-header">
-        <div>
-          <span className="eyebrow">MEZO WORKSPACE</span>
-          <h1>{selectedConversation?.title || "What should MEZO build?"}</h1>
-        </div>
-        <div className="header-actions">
-          <button className="status-button" onClick={() => void refresh()}><RefreshCw /><span>{status?.router.healthy ? "Cluster ready" : "Checking cluster"}</span></button>
-        </div>
+        <div><span className="eyebrow">MEZO WORKSPACE</span><h1>{selectedConversation?.title || "What should MEZO build?"}</h1></div>
+        <div className="header-actions"><button className="status-button" onClick={() => void refresh()}><RefreshCw /><span>{status?.router.healthy ? "Cluster ready" : "Checking cluster"}</span></button></div>
       </header>
 
       {error && <div className="error-banner"><X /><span>{error}</span><button aria-label="Dismiss error" onClick={() => setError("")}><X /></button></div>}
@@ -354,7 +351,7 @@ export default function App() {
           </div>
         </div> : <div className="messages">
           {messages.map(message => <MessageBubble key={message.id} message={message} />)}
-          {runningTask && <article className="message-row assistant working-message">
+          {runningTask && selectedTask && <article className="message-row assistant working-message">
             <div className="message-avatar"><Bot /></div>
             <div className="message-body"><div className="message-meta"><strong>MEZO</strong><span>{humanStatus(selectedTask.status)}</span></div><div className="working-line"><LoaderCircle className="spin" /><span>Working through the repository with the coding agent…</span></div></div>
           </article>}
@@ -363,18 +360,9 @@ export default function App() {
 
       <form className="composer" onSubmit={send}>
         <div className="composer-topline">
-          <select aria-label="MEZO mode" value={mode} onChange={event => setMode(event.target.value as Mode)}>
-            {modeOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-          <select aria-label="Interaction type" value={interaction} onChange={event => setInteraction(event.target.value as Interaction)}>
-            <option value="auto">Auto action</option>
-            <option value="chat">Chat only</option>
-            <option value="agent">Agent task</option>
-          </select>
-          <select aria-label="Project" value={projectId} onChange={event => setProjectId(event.target.value)}>
-            <option value="">No project</option>
-            {projects.map(project => <option key={project.id} value={project.id}>{project.name} · {project.default_branch}</option>)}
-          </select>
+          <select aria-label="MEZO mode" value={mode} onChange={event => setMode(event.target.value as Mode)}>{modeOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
+          <select aria-label="Interaction type" value={interaction} onChange={event => setInteraction(event.target.value as Interaction)}><option value="auto">Auto action</option><option value="chat">Chat only</option><option value="agent">Agent task</option></select>
+          <select aria-label="Project" value={projectId} onChange={event => setProjectId(event.target.value)}><option value="">No project</option>{projects.map(project => <option key={project.id} value={project.id}>{project.name} · {project.default_branch}</option>)}</select>
         </div>
         <div className="composer-main">
           <textarea
@@ -391,51 +379,33 @@ export default function App() {
           />
           {runningTask ? <button type="button" className="stop-button" onClick={() => void cancelTask()} disabled={busy} aria-label="Stop task"><CircleStop /></button> : <button className="send-button" disabled={busy || !prompt.trim()} aria-label="Send message">{busy ? <LoaderCircle className="spin" /> : <Send />}</button>}
         </div>
-        <div className="composer-footer"><span><activeMode.icon /> {activeMode.label}: {activeMode.description}</span><small>Enter to send · Shift + Enter for a new line</small></div>
+        <div className="composer-footer"><span><ActiveModeIcon /> {activeMode.label}: {activeMode.description}</span><small>Enter to send · Shift + Enter for a new line</small></div>
       </form>
     </main>
 
     <aside className="inspector">
       <section className="inspector-section cluster-overview">
         <div className="inspector-heading"><div><span className="eyebrow">LIVE CLUSTER</span><h2>MEZO specialists</h2></div><Gauge /></div>
-        <div className="cluster-stats">
-          <div><strong>{onlineMachines}</strong><span>Online</span></div>
-          <div><strong>{status?.max_machine_count ?? 20}</strong><span>Capacity</span></div>
-          <div><strong>{status?.max_concurrent_tasks ?? 4}</strong><span>Parallel tasks</span></div>
-        </div>
-        <div className="model-grid">
-          {modelCards.map(model => <ModelCard key={model.key} name={model.label} purpose={model.purpose} health={status?.router.models?.[model.key]} icon={model.icon} />)}
-        </div>
+        <div className="cluster-stats"><div><strong>{onlineMachines}</strong><span>Online</span></div><div><strong>{status?.max_machine_count ?? 20}</strong><span>Capacity</span></div><div><strong>{status?.max_concurrent_tasks ?? 4}</strong><span>Parallel tasks</span></div></div>
+        <div className="model-grid">{modelCards.map(model => <ModelCard key={model.key} name={model.label} purpose={model.purpose} health={status?.router.models?.[model.key]} icon={model.icon} />)}</div>
       </section>
 
       <section className="inspector-section">
         <div className="inspector-heading"><div><span className="eyebrow">TASK EVIDENCE</span><h2>{selectedTask ? humanStatus(selectedTask.status) : "No active task"}</h2></div><FileCode2 /></div>
         {!selectedTask && <div className="empty-evidence"><Terminal /><p>Start an agent task to see live tools, changed files, reviews and the final patch.</p></div>}
         {selectedTask && <>
-          <div className="task-meta">
-            <div><span>Mode</span><strong>{selectedTask.mode}</strong></div>
-            <div><span>Runner</span><strong>{selectedTask.runner_id || "Waiting"}</strong></div>
-            <div><span>Files</span><strong>{selectedTask.changed_files.length}</strong></div>
-          </div>
-
-          {events.length > 0 && <div className="event-feed">
-            {events.slice(-12).map(event => <div className="event-row" key={event.id}><span className="event-icon"><Terminal /></span><div><strong>{humanStatus(event.event_type)}</strong><pre>{eventSummary(event)}</pre></div></div>)}
-          </div>}
-
+          <div className="task-meta"><div><span>Mode</span><strong>{selectedTask.mode}</strong></div><div><span>Runner</span><strong>{selectedTask.runner_id || "Waiting"}</strong></div><div><span>Files</span><strong>{selectedTask.changed_files.length}</strong></div></div>
+          {events.length > 0 && <div className="event-feed">{events.slice(-12).map(event => <div className="event-row" key={event.id}><span className="event-icon"><Terminal /></span><div><strong>{humanStatus(event.event_type)}</strong><pre>{eventSummary(event)}</pre></div></div>)}</div>}
           {selectedTask.changed_files.length > 0 && <div className="changed-files"><h3><GitBranch />Changed files</h3>{selectedTask.changed_files.map(file => <div key={file.path}><code>{file.path}</code><span>{file.status || "M"}</span></div>)}</div>}
-
           {selectedTask.diff_text && <details className="diff-panel"><summary>View patch</summary><pre>{selectedTask.diff_text}</pre></details>}
           {selectedTask.error && <div className="task-error"><X /><span>{selectedTask.error}</span></div>}
           {selectedTask.reviewer_chain.length > 0 && <div className="review-chain"><h3><ShieldCheck />Review chain</h3><p>{selectedTask.reviewer_chain.join(" → ")}</p></div>}
-
-          <div className="task-actions">
-            {selectedTask.status === "completed" && <>
-              <button className="approve" disabled={busy || selectedTask.decision === "accept"} onClick={() => void decideTask("accept")}><Check />Accept</button>
-              <button className="reject" disabled={busy || selectedTask.decision === "reject"} onClick={() => void decideTask("reject")}><X />Reject</button>
-              <a href={api.patchUrl(selectedTask.id)}><Download />Patch</a>
-              <a href={api.archiveUrl(selectedTask.id)}><Archive />Archive</a>
-            </>}
-          </div>
+          <div className="task-actions">{selectedTask.status === "completed" && <>
+            <button className="approve" disabled={busy || selectedTask.decision === "accept"} onClick={() => void decideTask("accept")}><Check />Accept</button>
+            <button className="reject" disabled={busy || selectedTask.decision === "reject"} onClick={() => void decideTask("reject")}><X />Reject</button>
+            <a href={api.patchUrl(selectedTask.id)}><Download />Patch</a>
+            <a href={api.archiveUrl(selectedTask.id)}><Archive />Archive</a>
+          </>}</div>
         </>}
       </section>
     </aside>
